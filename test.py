@@ -2,7 +2,11 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt 
 import json
+import os
 from main import * 
+
+parts = MODEL.split(":", 1)
+MODEL_NAME = parts[0] or MODEL
 
 def levenshtein_distance(s1: str, s2: str) -> int:
     """
@@ -40,32 +44,41 @@ def levenshtein_l_ratio(s1: str, s2: str) -> float:
     l_ratio = (max_len - lev) / max_len
     return l_ratio
 
-def create_llm_data(commands: list) -> int:
+def create_llm_data(commands: list) -> tuple[dict, int]:
     output = {}
     total_tokens = 0
+    i = 0
     for command in commands:
+        i+=1
         response, tokens = get_llm_response(command)
         output[command] = response
         total_tokens += tokens
-        print("Command: ", command, "\nTokens used: ", tokens)
+        print(f"{i}: Command: ", command, "\n\tTokens used: ", total_tokens)
 
-    with open("data/llm.json", 'w') as f:
+    with open(f"data/llm-{MODEL_NAME}.json", 'w') as f:
         json.dump(output, f, indent=2)
 
-    return total_tokens
+    return output, total_tokens
 
 # Test cases
 if __name__ == "__main__":
     with open('data/commands.txt', 'r') as f:
         commands = [line.strip() for line in f if line.strip()]
     
-    tokens_used = create_llm_data(commands)
+    try:
+        llm = json.load(open(f'data/llm-{MODEL_NAME}.json', 'r'))
+        tokens_used = 0
+        print("Using saved llm data")
+    except:
+        print("Creating llm data")
+        llm, tokens_used = create_llm_data(commands)
 
     vm = json.load(open('data/vm.json', 'r'))
     cowrie = json.load(open('data/cowrie.json', 'r'))
-    llm = json.load(open('data/llm.json', 'r'))
+    results = f"results-{MODEL_NAME}"
+    os.makedirs(results, exist_ok=True)
 
-    category = json.load(open('categories.json', 'r'))
+    category = json.load(open('data/categories.json', 'r'))
     cowrie_system = []
     cowrie_filesystem = []
     cowrie_connectivity = []
@@ -75,7 +88,8 @@ if __name__ == "__main__":
     llm_connectivity = []
     
     for command in commands:
-        print(command)
+        if not llm[command]:
+            continue
         cowrie_lev = levenshtein_l_ratio(cowrie[command], vm[command])
         llm_lev = levenshtein_l_ratio(llm[command], vm[command])
         
@@ -109,7 +123,7 @@ if __name__ == "__main__":
     plt.tight_layout()
     
     # Save the plot
-    plt.savefig('results/similarity_plot.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{results}/similarity_plot.png', dpi=300, bbox_inches='tight')
     
     # Calculate averages
     def average(lst):
@@ -153,7 +167,7 @@ if __name__ == "__main__":
 """
     
     # Save to results.md
-    with open('results/results.md', 'w') as f:
+    with open(f'{results}/results.md', 'w') as f:
         f.write(markdown_content)
     
     print("Results saved in results directory")
