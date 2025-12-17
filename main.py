@@ -1,4 +1,5 @@
-import ollama
+from openai import OpenAI
+import os
 import re
 from typing import List, Tuple, Optional
 
@@ -51,9 +52,15 @@ H0 = {"history", "!!", "!-1", "!-2"}  # Commands that require full input history
 KILL_CMDS = {"exit", "shutdown", "reboot", "logout"}  # Commands that end session
 
 # Initialize histories
-C1 = []  # Session context history (QA pairs that affect future outputs)
-H1 = []  # Session global history (all inputs)
+C1 = []  # Session context history (QA pairs as dicts)
+H1 = []  # Session global history (all inputs as dicts)
 MAX_TOKENS = 4000  # 4k context limit (like the paper)
+
+def reset_histories():
+    """Reset session histories for testing or new sessions"""
+    global C1, H1
+    C1 = []
+    H1 = []
 
 def count_tokens(text: str) -> int:
     """Approximate token count: ~4 characters per token"""
@@ -75,51 +82,36 @@ def get_llm_response(question: str, useFEI=True) -> Tuple[Optional[str], int]:
         if question.strip().split()[0] in KILL_CMDS:
             return None, 0
 
-        # Choose appropriate context
-        context = choose_context(question)
-        messages.extend(context)
+    # Choose appropriate context
+    context = choose_context(C1, H1, question, useFEI)
+    messages.extend(context)
 
     messages.append({"role": "user", "content": question})
 
     try:
-        if "openai" in MODEL:
-            from openai import OpenAI
-            import os
-
-            client = OpenAI(
-                base_url="https://models.github.ai/inference",
-                api_key=os.environ["OPENAI_API_KEY"],
-            )
-            response = client.chat.completions.create(messages=messages, seed=67, temperature=0, model=MODEL)  # type: ignore
-            output = response.choices[0].message.content
-            total_tokens = response.usage.total_tokens if response.usage else 0
-            if output == "nil":
-                return None, total_tokens
-        else:
-            response = ollama.chat(
-                model=MODEL, messages=messages, options={"temperature": 0}
-            )
-
-            if not response or not response.get("message"):
-                return None, 0
-
-            output = response["message"]["content"]
-
-            # Calculate tokens
-            prompt_tokens = response.get("prompt_eval_count", 0)
-            response_tokens = response.get("eval_count", 0)
-            total_tokens = prompt_tokens + response_tokens
-
-            if output == "nil":
-                return None, total_tokens
+        client = OpenAI(
+            base_url="https://models.github.ai/inference",
+            api_key=os.environ["OPENAI_API_KEY"],
+            # base_url="https://api.routeway.ai/v1",
+            # api_key=os.environ["ROUTEWAY_API_KEY"],
+            # base_url="https://openrouter.ai/api/v1",
+            # api_key=os.environ["OPENROUTER_API_KEY"],
+        )
+        response = client.chat.completions.create(messages=messages, seed=67, temperature=0, model=MODEL)  # type: ignore
+        output = response.choices[0].message.content
+        total_tokens = response.usage.total_tokens if response.usage else 0
+        if output == "nil":
+            return None, total_tokens
         if useFEI:
             # Sanitize output
             sanitized_output = sanitize(output) if output else output
 
             # Update context
-            C1, H1 = update_context(question, sanitized_output, C1, H1)
+            C1, H1 = update_context(C1, H1, question, sanitized_output)
             return sanitized_output, total_tokens
         else:
+            # Update history (no sanitization)
+            C1, H1 = update_context(C1, H1, question, output)
             return output, total_tokens
 
     except Exception as e:
@@ -128,56 +120,71 @@ def get_llm_response(question: str, useFEI=True) -> Tuple[Optional[str], int]:
 
 
 # Algorithm 3: Choose Context
-def choose_context(input: str) -> List[dict]:
+def choose_context(C1: List[dict], H1: List[dict], input: str, useFEI: bool = True) -> List[dict]:
     """Select context history or global history based on question type and token limits"""
-    # Calculate current token usage
-    c1_str = str(C1)
-    current_tokens = count_tokens(SYSTEM_PROMPT) + count_tokens(c1_str) + count_tokens(input)
-    token_limit = MAX_TOKENS * 0.8
-    # If question requires full history or context is too large, use global history
-    if input in H0 or (current_tokens > token_limit):
-        # Use last commands until token limit
+    if not useFEI:
+        # FEI=False: Always use full global history (H1), trimmed
         context = []
         tokens_used = count_tokens(SYSTEM_PROMPT) + count_tokens(input)
-        for q in reversed(H1):
-            q_tokens = count_tokens(q)
-            if tokens_used + q_tokens > token_limit:
+        token_limit = MAX_TOKENS * 0.8
+        for msg in reversed(H1):
+            msg_tokens = count_tokens(msg['content'])
+            if tokens_used + msg_tokens > token_limit:
                 break
-            context.insert(0, {"role": "user", "content": q})
-            tokens_used += q_tokens
+            context.insert(0, msg)
+            tokens_used += msg_tokens
         return context
     else:
-        # Use context history
-        context = []
-        tokens_used = count_tokens(SYSTEM_PROMPT) + count_tokens(input)
-        for qa_pair in reversed(C1):
-            pair_tokens = count_tokens(qa_pair[0]) + count_tokens(qa_pair[1])
-            if tokens_used + pair_tokens > token_limit:
-                break
-            context.insert(0, {"role": "user", "content": qa_pair[0]})
-            context.insert(1, {"role": "assistant", "content": qa_pair[1]})
-            tokens_used += pair_tokens
-        return context
+        # FEI=True: Smart selection
+        c1_str = str(C1)
+        current_tokens = count_tokens(SYSTEM_PROMPT) + count_tokens(c1_str) + count_tokens(input)
+        token_limit = MAX_TOKENS * 0.8
+        # If question requires full history or context is too large, use global history
+        if input in H0 or (current_tokens > token_limit):
+            # Use last commands until token limit
+            context = []
+            tokens_used = count_tokens(SYSTEM_PROMPT) + count_tokens(input)
+            for msg in reversed(H1):
+                msg_tokens = count_tokens(msg['content'])
+                if tokens_used + msg_tokens > token_limit:
+                    break
+                context.insert(0, msg)
+                tokens_used += msg_tokens
+            return context
+        else:
+            # Use context history
+            context = []
+            tokens_used = count_tokens(SYSTEM_PROMPT) + count_tokens(input)
+            for msg in reversed(C1):
+                msg_tokens = count_tokens(msg['content'])
+                if tokens_used + msg_tokens > token_limit:
+                    break
+                context.insert(0, msg)
+                tokens_used += msg_tokens
+            return context
 
 
 # Algorithm 4: Update Context
 def update_context(
-    question: str, answer: Optional[str], C1: List, H1: List
-) -> Tuple[List, List]:
+    C1: List[dict], H1: List[dict], question: str, answer: Optional[str]
+) -> Tuple[List[dict], List[dict]]:
     """Update session context history and global history"""
     # Update global history
-    H1.append(question)
+    H1.append({"role": "user", "content": question})
+    if answer is not None:
+        H1.append({"role": "assistant", "content": answer})
     # Trim H1 to fit within token limit
-    while count_tokens(" ".join(H1)) > MAX_TOKENS:
+    while count_tokens(" ".join([msg['content'] for msg in H1])) > MAX_TOKENS:
         H1.pop(0)
 
     # Update context history if question affects future outputs
     cmd = question.split()[0] if question.split() else ""
     in_c0 = any(cmd in c for c in C0)
     if in_c0 and answer is not None:
-        C1.append((question, answer))
+        C1.append({"role": "user", "content": question})
+        C1.append({"role": "assistant", "content": answer})
         # Trim C1 to fit within token limit
-        while count_tokens(str(C1)) > MAX_TOKENS:
+        while count_tokens(" ".join([msg['content'] for msg in C1])) > MAX_TOKENS:
             C1.pop(0)
 
     return C1, H1

@@ -26,7 +26,7 @@ COMMANDS = "datasets/commands"
 SCENARIOS = "datasets/scenarios"
 RESULTS_DIR = f"output/{MODEL_NAME}"
 
-BAD_OUTPUTS = ["bad", "command not found"]
+BAD_OUTPUTS = ["bad", "command not found", "No such file"]
 # ============================================================================
 # DATA COLLECTION
 # ============================================================================
@@ -142,6 +142,7 @@ def collect_attack_scenarios(output_filename: str, port: str):
 
 
 def generate_llm_commands(output_filename: str, useFEI=True):
+    reset_histories()  # Reset history for each generation run
     output = {}
     tokens = 0
 
@@ -160,6 +161,7 @@ def generate_llm_commands(output_filename: str, useFEI=True):
 
 
 def generate_llm_scenarios(output_filename: str, useFEI=True):
+    reset_histories()  # Reset history for each generation run
     output = {}
     tokens = 0
 
@@ -269,10 +271,11 @@ def create_scenarios_bar_chart():
             for step in range(1, 10):
                 command_output = attack_scenarios[tactic][f"step {step}"]
                 for bad in BAD_OUTPUTS:
-                    if command_output and bad not in command_output:
-                        completed_steps += 1
-                    else:
-                        break
+                    if command_output:
+                        if bad in command_output:
+                            break
+                else:
+                    completed_steps += 1
             steps_data[method][tactic] = completed_steps
 
     # Create bars for each method
@@ -309,7 +312,7 @@ def create_scenarios_token_line_chart():
 
         ax.plot(steps, tokens, label="LLM")
         ax.plot(steps, tokens_fei, label="LLM+FEI")
-        ax.set_ylim(0, 2000)
+        ax.set_ylim(0, 7000)
         ax.set_title(tactic)
         ax.set_xlabel("Step")
         ax.set_ylabel("Tokens")
@@ -470,7 +473,7 @@ if __name__ == "__main__":
 
     if args.llm_commands or args.llm:
         print("=== GENERATING LLM COMMANDS DATA ===")
-        generate_llm_commands(f"{COMMANDS}/fei+{MODEL_NAME}.json", False)
+        generate_llm_commands(f"{COMMANDS}/fei+{MODEL_NAME}.json", True)
         generate_llm_commands(f"{COMMANDS}/{MODEL_NAME}.json", False)
 
     if args.llm_scenarios or args.llm:
