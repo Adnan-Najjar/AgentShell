@@ -31,13 +31,17 @@ class Agent:
         )
 
         self.checkpointer = SqliteSaver(
-            sqlite3.connect("checkpoints.db", check_same_thread=False)
+            sqlite3.connect(f"{thread_id}_checkpoint.db", check_same_thread=False)
         )
 
         # Load data from last saved checkpoint
         saved_checkpoint = self.checkpointer.get(self.config)
         if saved_checkpoint:
-            saved_state = saved_checkpoint["channel_values"]["structured_response"]
+            saved_state = saved_checkpoint["channel_values"]
+            try:
+                saved_state = saved_state["structured_response"]
+            except KeyError as e:
+                raise KeyError(f"{MODEL} doesn't support/didn't use [structured responses](https://docs.langchain.com/oss/python/langchain/structured-output)\n{e}")
             self.current_state = {
                 "user": saved_state["user"],
                 "user_dir": saved_state["user_dir"],
@@ -77,7 +81,11 @@ class Agent:
             self.config,
         )
 
-        structured_output = result["structured_response"]
+        try:
+            structured_output = result["structured_response"]
+        except KeyError as e:
+            raise KeyError(f"{MODEL} doesn't support/didn't use [structured responses](https://docs.langchain.com/oss/python/langchain/structured-output)\n{e}")
+
         self.current_state = {
             "user": structured_output["user"],
             "user_dir": structured_output["user_dir"],
@@ -89,7 +97,9 @@ class Agent:
 
         self.shell_prompt = self._shell_prompt(self.current_state)
 
-        return structured_output["command_output"], result["messages"][-2].response_metadata['token_usage']['total_tokens']
+        total_tokens = result["messages"][-2].response_metadata['token_usage']['total_tokens']
+
+        return structured_output["command_output"], total_tokens
 
 
 if __name__ == "__main__":
