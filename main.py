@@ -1,13 +1,15 @@
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent, AgentState
 from langchain.agents.structured_output import ToolStrategy
+from langchain.agents.middleware import SummarizationMiddleware
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import SecretStr
 from typing import Tuple
 import sqlite3
 import os
-from utils import SYSTEM_PROMPT, MODEL
+from utils import SYSTEM_PROMPT, SUMMARY_PROMPT, MODEL, SUMMARY_MODEL
 
 
 class ShellAgentState(AgentState):
@@ -22,12 +24,18 @@ class ShellAgentState(AgentState):
 class Agent:
     def __init__(self, thread_id: str = "default") -> None:
         self.config = RunnableConfig(configurable={"thread_id": thread_id})
+
         self.model = ChatOpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=SecretStr(os.environ["OPENROUTER_API_KEY"]),
             model=MODEL,
             temperature=0,
             seed=42,
+        )
+        self.summarize_model = ChatOpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=SecretStr(os.environ["OPENROUTER_API_KEY"]),
+            model=SUMMARY_MODEL,
         )
 
         self.checkpointer = SqliteSaver(
@@ -38,10 +46,13 @@ class Agent:
         saved_checkpoint = self.checkpointer.get(self.config)
         if saved_checkpoint:
             saved_state = saved_checkpoint["channel_values"]
+            self.total_tokens = self._token_counter(saved_state["messages"])
             try:
                 saved_state = saved_state["structured_response"]
             except KeyError as e:
-                raise KeyError(f"{MODEL} doesn't support/didn't use [structured responses](https://docs.langchain.com/oss/python/langchain/structured-output)\n{e}")
+                raise KeyError(
+                    f"{MODEL} doesn't support/didn't use [structured responses](https://docs.langchain.com/oss/python/langchain/structured-output)\n{e}"
+                )
             self.current_state = {
                 "user": saved_state["user"],
                 "user_dir": saved_state["user_dir"],
@@ -58,18 +69,42 @@ class Agent:
                 "current_dir": "/root",
                 "is_root": True,
             }
+            self.total_tokens = 0
 
         self.shell_prompt = self._shell_prompt(self.current_state)
 
         # TODO: Make system prompt dynamic based on current state from AgentState
         self.agent = create_agent(
             model=self.model,
-            system_prompt=SYSTEM_PROMPT, # TODO: make system prompt dynamic
+            system_prompt=SYSTEM_PROMPT,  # TODO: make system prompt dynamic
             response_format=ToolStrategy(ShellAgentState),
             state_schema=ShellAgentState,
             checkpointer=self.checkpointer,
-            # Summerization middleware for context size managment
+            middleware=[
+                SummarizationMiddleware(
+                    model=self.summarize_model,
+                    token_counter=self._token_counter,
+                    summary_prompt=SUMMARY_PROMPT,
+                    trigger=("tokens", 4000),
+                    keep=("messages", 1),
+                ),
+            ],
         )
+
+    def _token_counter(self, messages):
+        tokens = 0
+        for msgi in range(len(messages) - 1, 0, -1):
+            msg = messages[msgi]
+            # Count last input tokens
+            if isinstance(msg, HumanMessage):
+                tokens += len(msg.content)
+            # Get last total tokens
+            elif isinstance(msg, AIMessage):
+                input_tokens = int(tokens / 4)
+                last_tokens = msg.response_metadata["token_usage"]["total_tokens"]
+                print(last_tokens + input_tokens)
+                return last_tokens + input_tokens
+        return 0
 
     def _shell_prompt(self, state: dict) -> str:
         prompt = f"{state['user']}@{state['localhost']}:{state['current_dir']}{'#' if state['is_root'] else '$'} "
@@ -84,7 +119,9 @@ class Agent:
         try:
             structured_output = result["structured_response"]
         except KeyError as e:
-            raise KeyError(f"{MODEL} doesn't support/didn't use [structured responses](https://docs.langchain.com/oss/python/langchain/structured-output)\n{e}")
+            raise KeyError(
+                f"{MODEL} doesn't support/didn't use [structured responses](https://docs.langchain.com/oss/python/langchain/structured-output)\n{e}"
+            )
 
         self.current_state = {
             "user": structured_output["user"],
@@ -97,9 +134,9 @@ class Agent:
 
         self.shell_prompt = self._shell_prompt(self.current_state)
 
-        total_tokens = result["messages"][-2].response_metadata['token_usage']['total_tokens']
+        self.total_tokens = self._token_counter(result["messages"])
 
-        return structured_output["command_output"], total_tokens
+        return structured_output["command_output"], self.total_tokens
 
 
 if __name__ == "__main__":

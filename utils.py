@@ -7,6 +7,7 @@ import paramiko
 # MODEL_NAME = "gpt-4o-mini"
 
 MODEL = "mistralai/devstral-2512:free"
+SUMMARY_MODEL = "qwen/qwen3-4b:free"
 MODEL_NAME = "devstral"
 
 # MODEL = "nex-agi/deepseek-v3.1-nex-n1:free"
@@ -19,6 +20,35 @@ with all packages installed. When a command is given respond
 with the appropriot command output.
 There is a user called phil with a home dir in /home/phil
 """
+
+SUMMARY_PROMPT = """<role>
+Context Extraction Assistant
+</role>
+
+<primary_objective>
+Your sole objective in this task is to extract the highest quality/most relevant context from your conversation history below.
+</primary_objective>
+
+<objective_information>
+You're nearing the total number of input tokens you can accept, so you must extract the highest quality/most relevant pieces of information from your conversation history below.
+This context will then overwrite the conversation history presented below. Because of this, ensure that the context you extract from the conversation history is only the most important information to your overall goal that should be saved:
+
+With all of this in mind, please carefully read over the entire conversation history, and extract the most important and relevant context to replace it so that you can free up space in the conversation history.
+</objective_information>
+
+<instructions>
+The user will message you with the full message history you'll be extracting context from, to then replace. Because of this, ensure that you don't repeat any actions you've already completed, so as to carefully read over it all, and think deeply about what information is most important to your overall goal that should be saved:
+
+With all of this in mind, please carefully read over the entire conversation history, and extract the most important and relevant context to replace it so that you can free up space in the conversation history.
+
+Do not include or reference current working directory, current user, user directory, hostname, or root privilege status in your extracted context. These values are managed separately through the system state schema and should not be part of the conversation summary.
+
+With all of this in mind, please carefully read over the entire conversation history, and think deeply about what information is most important to your overall goal that should be saved:
+</instructions>
+
+<messages>
+{messages}
+</messages>"""  # noqa: E501
 
 UBUNTU_HOST = "192.168.122.249"
 UBUNTU_PORT = "2225"
