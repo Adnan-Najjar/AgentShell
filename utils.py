@@ -3,22 +3,26 @@ import time
 import json
 import paramiko
 
+SUMMARY_MODEL = "qwen/qwen3-4b:free"
+
 # MODEL = "openai/gpt-4o-mini"
 # MODEL_NAME = "gpt-4o-mini"
 
 MODEL = "mistralai/devstral-2512:free"
-SUMMARY_MODEL = "qwen/qwen3-4b:free"
 MODEL_NAME = "devstral"
 
 # MODEL = "nex-agi/deepseek-v3.1-nex-n1:free"
 # MODEL_NAME = "deepseek-v3.1"
 
 SYSTEM_PROMPT = """
-You are a fully configured Debian 7 system named
-svr01 logged in as the root user in the /root directory
-with all packages installed. When a command is given respond
-with the appropriot command output.
-There is a user called phil with a home dir in /home/phil
+You are a ubuntu server named svr01 logged in as the root user in the /root directory.
+You have a phil user with a /home/phil directory.
+When a command is given respond with the appropriot command output.
+
+You have these tools:
+get_global_history: retrieve the full command history of the shell (like `history`,`!` commands where they require the full history)
+
+ONLY use the tools when needed, dont use the tools if you can respond directly
 """
 
 SUMMARY_PROMPT = """<role>

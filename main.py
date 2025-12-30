@@ -10,6 +10,7 @@ from typing import Tuple
 import sqlite3
 import os
 from utils import SYSTEM_PROMPT, SUMMARY_PROMPT, MODEL, SUMMARY_MODEL
+from tools import Tools
 
 
 class ShellAgentState(AgentState):
@@ -38,9 +39,13 @@ class Agent:
             model=SUMMARY_MODEL,
         )
 
+        os.makedirs(thread_id, exist_ok=True)
+        self.checkpoint_path = os.path.join(thread_id, "checkpoint.db")
         self.checkpointer = SqliteSaver(
-            sqlite3.connect(f"{thread_id}_checkpoint.db", check_same_thread=False)
+            sqlite3.connect(self.checkpoint_path, check_same_thread=False)
         )
+
+        self.tools = Tools(thread_id)
 
         # Load data from last saved checkpoint
         saved_checkpoint = self.checkpointer.get(self.config)
@@ -73,10 +78,10 @@ class Agent:
 
         self.shell_prompt = self._shell_prompt(self.current_state)
 
-        # TODO: Make system prompt dynamic based on current state from AgentState
         self.agent = create_agent(
             model=self.model,
-            system_prompt=SYSTEM_PROMPT,  # TODO: make system prompt dynamic
+            tools=self.tools.get_tools(),
+            system_prompt=SYSTEM_PROMPT,
             response_format=ToolStrategy(ShellAgentState),
             state_schema=ShellAgentState,
             checkpointer=self.checkpointer,
@@ -85,7 +90,7 @@ class Agent:
                     model=self.summarize_model,
                     token_counter=self._token_counter,
                     summary_prompt=SUMMARY_PROMPT,
-                    trigger=("tokens", 4000),
+                    trigger=("tokens", 10000),
                     keep=("messages", 1),
                 ),
             ],
@@ -102,7 +107,6 @@ class Agent:
             elif isinstance(msg, AIMessage):
                 input_tokens = int(tokens / 4)
                 last_tokens = msg.response_metadata["token_usage"]["total_tokens"]
-                print(last_tokens + input_tokens)
                 return last_tokens + input_tokens
         return 0
 
@@ -111,6 +115,8 @@ class Agent:
         return prompt.replace(state["user_dir"], "~", 1)
 
     def chat(self, query: str) -> Tuple[str, int]:
+        last_id = self.tools.set_global_history(query)
+
         result = self.agent.invoke(
             {"messages": [{"role": "user", "content": query}]},
             self.config,
@@ -132,6 +138,8 @@ class Agent:
             "command_output": structured_output["command_output"],
         }
 
+        self.tools.update_history_output(last_id, structured_output["command_output"])
+
         self.shell_prompt = self._shell_prompt(self.current_state)
 
         self.total_tokens = self._token_counter(result["messages"])
@@ -145,5 +153,5 @@ if __name__ == "__main__":
         q = input(agent.shell_prompt)
         if q != "":
             response = agent.chat(q)
-            if response != "":
+            if response[0] != "":
                 print(response[0])
