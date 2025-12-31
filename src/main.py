@@ -6,7 +6,6 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import SecretStr
-from typing import Tuple
 import sqlite3
 import os
 from utils import SYSTEM_PROMPT, SUMMARY_PROMPT, MODEL, SUMMARY_MODEL
@@ -34,7 +33,7 @@ class Agent:
             seed=42,
         )
         self.summarize_model = ChatOpenAI(
-            base_url="https://localhost:11434/v1",
+            base_url="http://localhost:11434/v1",
             model=SUMMARY_MODEL,
         )
 
@@ -113,8 +112,8 @@ class Agent:
         prompt = f"{state['user']}@{state['localhost']}:{state['current_dir']}{'#' if state['is_root'] else '$'} "
         return prompt.replace(state["user_dir"], "~", 1)
 
-    def chat(self, query: str) -> Tuple[str, int]:
-        last_id = self.tools.set_global_history(query)
+    def chat(self, query: str) -> str:
+        last_id = self.tools.set_history(query)
 
         result = self.agent.invoke(
             {"messages": [{"role": "user", "content": query}]},
@@ -137,13 +136,13 @@ class Agent:
             "command_output": structured_output["command_output"],
         }
 
-        self.tools.update_history_output(last_id, structured_output["command_output"])
+        self.tools.update_history(last_id, structured_output["command_output"])
 
         self.shell_prompt = self._shell_prompt(self.current_state)
 
         self.total_tokens = self._token_counter(result["messages"])
 
-        return structured_output["command_output"], self.total_tokens
+        return structured_output["command_output"]
 
 
 if __name__ == "__main__":
@@ -152,5 +151,5 @@ if __name__ == "__main__":
         q = input(agent.shell_prompt)
         if q != "":
             response = agent.chat(q)
-            if response[0] != "":
-                print(response[0])
+            if response != "":
+                print(response)

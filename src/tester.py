@@ -13,14 +13,13 @@ from main import *
 def generate_llm_commands(output_filename: str):
     agent = Agent("commands")
     output = {}
-    tokens = 0
 
     commands = json.load(open(f"{COMMANDS}.json", "r"))
     for i, command in enumerate(commands):
-        response, tokens = agent.chat(command)
+        response = agent.chat(command)
         output[command] = response
-        print(f"Command number: {i}, Command output: {response:.30}, Tokens {tokens}")
-    output["tokens_used"] = tokens
+        print(f"Command number: {i}, Command output: {response:.30}, Tokens {agent.total_tokens}")
+    output["tokens_used"] = agent.total_tokens
 
     with open(output_filename, "w") as f:
         json.dump(output, f, indent=2)
@@ -28,7 +27,6 @@ def generate_llm_commands(output_filename: str):
 
 def generate_llm_scenarios(output_filename: str):
     output = {}
-    tokens = 0
 
     attack_scenarios: dict = json.load(open("datasets/attack_scenarios.json", "r"))
     for tactic in TACTICS:
@@ -36,11 +34,11 @@ def generate_llm_scenarios(output_filename: str):
         tactic_commands = {}
         tactic_tokens = {}
         for step, command in attack_scenarios[tactic].items():
-            result, tokens = agent.chat(command)
+            result = agent.chat(command)
             tactic_commands[step] = result
-            tactic_tokens[step] = tokens
+            tactic_tokens[step] = agent.total_tokens
             print(
-                f"Attack scenario {tactic} at step: {step}, Output: {result:.30}, Tokens: {tokens}"
+                f"Attack scenario {tactic} at step: {step}, Output: {result:.30}, Tokens: {agent.total_tokens}"
             )
         output[tactic] = tactic_commands
         output[tactic + "_tokens"] = tactic_tokens
@@ -56,13 +54,11 @@ def create_scenarios_bar_chart(completed_steps):
     x = list(range(len(TACTICS)))
     width = 0.25  # width of each bar
 
-    colors = ["yellow", "green", "purple"]
-
     # Create bars for each method
     for i, method in enumerate(METHODS):
         x_positions = [xi + i * width - width / 2 for xi in x]
         values = [completed_steps[method][tactic] for tactic in TACTICS]
-        ax.bar(x_positions, values, width, label=method, color=colors[i])
+        ax.bar(x_positions, values, width, label=method, color=COLORS[i])
 
     # Formatting
     ax.set_ylabel("Attack Steps Completed")
@@ -275,6 +271,8 @@ if __name__ == "__main__":
 | System Average | {average(cowrie_system):.3f} | {average(llm_system):.3f} |
 | Filesystem Average | {average(cowrie_filesystem):.3f} | {average(llm_filesystem):.3f} |
 | Connectivity Average | {average(cowrie_connectivity):.3f} | {average(llm_connectivity):.3f} |
+
+- Tokens used: {llm["tokens_used"]}
 
 ## Bar Chart
 

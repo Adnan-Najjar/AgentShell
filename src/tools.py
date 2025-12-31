@@ -17,15 +17,18 @@ class Tools:
             CREATE TABLE IF NOT EXISTS history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 command TEXT NOT NULL,
-                output TEXT
+                output TEXT,
+                deleted INTEGER DEFAULT 0
             )
         """
         )
         self.conn.commit()
 
-    def get_global_history(self) -> str:
+    def get_history(self) -> str:
         cursor = self.conn.cursor()
-        cursor.execute("SELECT id, command FROM history ORDER BY id LIMIT 500")
+        cursor.execute(
+            "SELECT ROW_NUMBER() OVER (ORDER BY id), command FROM history WHERE deleted = 0 LIMIT 500"
+        )
         results = cursor.fetchall()
 
         if results is None:
@@ -36,7 +39,7 @@ class Tools:
             output += f"\n {cmd_id}\t{command}"
         return output
 
-    def set_global_history(self, command: str) -> int:
+    def set_history(self, command: str) -> int:
         cursor = self.conn.cursor()
         cursor.execute(
             "INSERT INTO history (command, output) VALUES (?, NULL)", (command,)
@@ -44,18 +47,28 @@ class Tools:
         self.conn.commit()
         return cursor.lastrowid if cursor.lastrowid else 1
 
-    def update_history_output(self, cmd_id: int, output: str):
+    def update_history(self, cmd_id: int, output: str):
         cursor = self.conn.cursor()
         cursor.execute("UPDATE history SET output = ? WHERE id = ?", (output, cmd_id))
+        self.conn.commit()
+
+    def delete_history(self):
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE history SET deleted = 1")
         self.conn.commit()
 
     def get_tools(self):
         return [
             StructuredTool.from_function(
-                func=self.get_global_history,
+                func=self.get_history,
                 description="ONLY use when user explicitly requests command history. DO NOT call this tool proactively or to check previous interactions - you already have access to conversation history.",
-                name="get_global_history",
-            )
+                name="get_history",
+            ),
+            StructuredTool.from_function(
+                func=self.delete_history,
+                description="ONLY use when user explicitly requests deletion of the command history.",
+                name="delete_history",
+            ),
         ]
 
     def __del__(self):

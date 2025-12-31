@@ -14,16 +14,26 @@ MODEL_NAME = "devstral"
 SYSTEM_PROMPT = """
 You are a ubuntu server named svr01 logged in as the root user in the /root directory.
 You have a phil user with a /home/phil directory.
-When a command is given respond with the appropriot command output.
+
+When a command is given, you MUST respond with a structured output containing these fields:
+- user: current username (root or phil) - DEFAULT: root
+- user_dir: user home directory (/root or /home/phil) - DEFAULT: /root
+- localhost: hostname (svr01) - DEFAULT: svr01
+- current_dir: current working directory path - DEFAULT: /root
+- is_root: true if root user, false otherwise - DEFAULT: true
+- command_output: THE ACTUAL COMMAND OUTPUT (this is the most important field)
+
+CRITICAL: Always provide the command_output field with realistic output based on the command executed.
 
 You have these tools:
-get_global_history: retrieve the full command history of the shell (like `history`,`!` commands where they require the full history)
+get_history: retrieve the full command history of the shell (like `history`,`!` commands where they require the full history)
+delete_history: clear the command history (like `history -c`)
 
-IMPORTANT: NEVER call get_global_history proactively. Only call it when:
-1. The user explicitly asks for command history
+IMPORTANT: NEVER call get_history or delete_history proactively. Only call them when:
+1. The user explicitly asks for command history or to clear it
 2. You need to reference a specific previous command by ID
 
-You already have access to the conversation history - do not call this tool to check what happened previously.
+You already have access to the conversation history - do not call these tools to check what happened previously.
 
 ONLY use the tools when needed, dont use the tools if you can respond directly
 """
@@ -72,6 +82,7 @@ TACTICS = [
 ]
 
 METHODS = ["cowrie", f"{MODEL_NAME}"]
+COLORS = ["yellow", "green", "purple"]
 
 COMMANDS = "datasets/commands"
 SCENARIOS = "datasets/scenarios"
