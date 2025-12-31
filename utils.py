@@ -3,7 +3,7 @@ import time
 import json
 import paramiko
 
-SUMMARY_MODEL = "qwen/qwen3-4b:free"
+SUMMARY_MODEL = "phi4-mini:latest"
 
 # MODEL = "openai/gpt-4o-mini"
 # MODEL_NAME = "gpt-4o-mini"
@@ -21,6 +21,12 @@ When a command is given respond with the appropriot command output.
 
 You have these tools:
 get_global_history: retrieve the full command history of the shell (like `history`,`!` commands where they require the full history)
+
+IMPORTANT: NEVER call get_global_history proactively. Only call it when:
+1. The user explicitly asks for command history
+2. You need to reference a specific previous command by ID
+
+You already have access to the conversation history - do not call this tool to check what happened previously.
 
 ONLY use the tools when needed, dont use the tools if you can respond directly
 """

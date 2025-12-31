@@ -2,6 +2,7 @@ from langchain_core.tools import StructuredTool
 import sqlite3
 import os
 
+
 class Tools:
     def __init__(self, thread_id: str):
         os.makedirs(thread_id, exist_ok=True)
@@ -52,7 +53,7 @@ class Tools:
         return [
             StructuredTool.from_function(
                 func=self.get_global_history,
-                description="Gets all of the commands that got executed in the current session.",
+                description="ONLY use when user explicitly requests command history. DO NOT call this tool proactively or to check previous interactions - you already have access to conversation history.",
                 name="get_global_history",
             )
         ]

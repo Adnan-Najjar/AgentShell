@@ -34,8 +34,7 @@ class Agent:
             seed=42,
         )
         self.summarize_model = ChatOpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=SecretStr(os.environ["OPENROUTER_API_KEY"]),
+            base_url="https://localhost:11434/v1",
             model=SUMMARY_MODEL,
         )
 
