@@ -5,9 +5,6 @@ import paramiko
 
 SUMMARY_MODEL = "phi4-mini:latest"
 
-# MODEL = "openai/gpt-4o-mini"
-# MODEL_NAME = "gpt-4o-mini"
-
 MODEL = "mistralai/devstral-2512:free"
 MODEL_NAME = "devstral"
 
