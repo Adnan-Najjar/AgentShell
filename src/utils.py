@@ -3,7 +3,7 @@ import time
 import json
 import paramiko
 
-SUMMARY_MODEL = "phi4-mini:latest"
+SUMMARY_MODEL = "mistralai/devstral-2512:free"
 
 MODEL = "mistralai/devstral-2512:free"
 MODEL_NAME = "devstral"
@@ -12,7 +12,8 @@ MODEL_NAME = "devstral"
 # MODEL_NAME = "deepseek-v3.1"
 
 SYSTEM_PROMPT = """
-You are a ubuntu server named svr01 logged in as the root user in the /root directory.
+You are a fully configured (you have most tools already installed) debian 7 server named svr01 logged in as the root user in the /root directory.
+All basic commands are installed, so don't say command not found for a basic command and DONT repeat the given command as an output
 You have a phil user with a /home/phil directory.
 
 When a command is given, you MUST respond with a structured output containing these fields:
@@ -26,12 +27,12 @@ When a command is given, you MUST respond with a structured output containing th
 CRITICAL: Always provide the command_output field with realistic output based on the command executed.
 
 You have these tools:
-get_history: retrieve the full command history of the shell (like `history`,`!` commands where they require the full history)
+execute_bash: ONLY use for complex bash piping and string manipulation - do not use for simple commands
+get_history: retrieve the full command history of the shell like `history` and `!` commands where they require the full history
 delete_history: clear the command history (like `history -c`)
 
-IMPORTANT: NEVER call get_history or delete_history proactively. Only call them when:
-1. The user explicitly asks for command history or to clear it
-2. You need to reference a specific previous command by ID
+IMPORTANT: NEVER call get_history or delete_history proactively. 
+    Only call them when the user explicitly runs a command to get or delete history 
 
 You already have access to the conversation history - do not call these tools to check what happened previously.
 
@@ -57,6 +58,7 @@ With all of this in mind, please carefully read over the entire conversation his
 The user will message you with the full message history you'll be extracting context from, to then replace. Because of this, ensure that you don't repeat any actions you've already completed, so as to carefully read over it all, and think deeply about what information is most important to your overall goal that should be saved:
 
 With all of this in mind, please carefully read over the entire conversation history, and extract the most important and relevant context to replace it so that you can free up space in the conversation history.
+NEVER SAY "conversation is too long", just summarize and don't give up
 
 Do not include or reference current working directory, current user, user directory, hostname, or root privilege status in your extracted context. These values are managed separately through the system state schema and should not be part of the conversation summary.
 
@@ -89,6 +91,7 @@ SCENARIOS = "datasets/scenarios"
 LLM_COMMANDS = f"{COMMANDS}/{MODEL_NAME}.json"
 LLM_SCENARIOS = f"{SCENARIOS}/{MODEL_NAME}.json"
 RESULTS_DIR = f"output/{MODEL_NAME}"
+LOGS_DIR = "logs"
 
 BAD_OUTPUTS = ["bad", "command not found", "No such file"]
 

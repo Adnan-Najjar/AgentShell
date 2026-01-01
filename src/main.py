@@ -33,12 +33,14 @@ class Agent:
             seed=42,
         )
         self.summarize_model = ChatOpenAI(
-            base_url="http://localhost:11434/v1",
+            base_url="https://openrouter.ai/api/v1",
+            api_key=SecretStr(os.environ["OPENROUTER_API_KEY"]),
             model=SUMMARY_MODEL,
         )
 
-        os.makedirs(thread_id, exist_ok=True)
-        self.checkpoint_path = os.path.join(thread_id, "checkpoint.db")
+        logs_dir = os.path.join(LOGS_DIR, thread_id)
+        os.makedirs(logs_dir, exist_ok=True)
+        self.checkpoint_path = os.path.join(logs_dir, "checkpoint.db")
         self.checkpointer = SqliteSaver(
             sqlite3.connect(self.checkpoint_path, check_same_thread=False)
         )
@@ -113,6 +115,10 @@ class Agent:
         return prompt.replace(state["user_dir"], "~", 1)
 
     def chat(self, query: str) -> str:
+        command = query.split()[0]
+        if not self.tools.is_command_found(command):
+            return f"bash: {command}: command not found"
+
         last_id = self.tools.set_history(query)
 
         result = self.agent.invoke(
