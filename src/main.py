@@ -5,14 +5,22 @@ from langchain.agents.middleware import SummarizationMiddleware
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
-from pydantic import SecretStr
+from pydantic import BaseModel, SecretStr
 import sqlite3
 import os
-from utils import SYSTEM_PROMPT, SUMMARY_PROMPT, MODEL, SUMMARY_MODEL
+from utils import SYSTEM_PROMPT, SUMMARY_PROMPT, MODEL, SUMMARY_MODEL, LOGS_DIR
 from tools import Tools
 
 
 class ShellAgentState(AgentState):
+    user: str
+    user_dir: str
+    localhost: str
+    current_dir: str
+    is_root: bool
+
+
+class OutputStructure(BaseModel):
     user: str
     user_dir: str
     localhost: str
@@ -59,11 +67,11 @@ class Agent:
                     f"{MODEL} doesn't support/didn't use [structured responses](https://docs.langchain.com/oss/python/langchain/structured-output)\n{e}"
                 )
             self.current_state = {
-                "user": saved_state["user"],
-                "user_dir": saved_state["user_dir"],
-                "localhost": saved_state["localhost"],
-                "current_dir": saved_state["current_dir"],
-                "is_root": saved_state["is_root"],
+                "user": saved_state.user,
+                "user_dir": saved_state.user_dir,
+                "localhost": saved_state.localhost,
+                "current_dir": saved_state.current_dir,
+                "is_root": saved_state.is_root,
             }
         # Otherwise use default values
         else:
@@ -82,7 +90,7 @@ class Agent:
             model=self.model,
             tools=self.tools.get_tools(),
             system_prompt=SYSTEM_PROMPT,
-            response_format=ToolStrategy(ShellAgentState),
+            response_format=ToolStrategy(OutputStructure),
             state_schema=ShellAgentState,
             checkpointer=self.checkpointer,
             middleware=[
@@ -90,8 +98,8 @@ class Agent:
                     model=self.summarize_model,
                     token_counter=self._token_counter,
                     summary_prompt=SUMMARY_PROMPT,
-                    trigger=("tokens", 10000),
-                    keep=("messages", 1),
+                    trigger=("tokens", 4000),
+                    keep=("messages", 2),
                 ),
             ],
         )
@@ -134,21 +142,21 @@ class Agent:
             )
 
         self.current_state = {
-            "user": structured_output["user"],
-            "user_dir": structured_output["user_dir"],
-            "localhost": structured_output["localhost"],
-            "current_dir": structured_output["current_dir"],
-            "is_root": structured_output["is_root"],
-            "command_output": structured_output["command_output"],
+            "user": structured_output.user,
+            "user_dir": structured_output.user_dir,
+            "localhost": structured_output.localhost,
+            "current_dir": structured_output.current_dir,
+            "is_root": structured_output.is_root,
+            "command_output": structured_output.command_output,
         }
 
-        self.tools.update_history(last_id, structured_output["command_output"])
+        self.tools.update_history(last_id, structured_output.command_output)
 
         self.shell_prompt = self._shell_prompt(self.current_state)
 
         self.total_tokens = self._token_counter(result["messages"])
 
-        return structured_output["command_output"]
+        return structured_output.command_output
 
 
 if __name__ == "__main__":
