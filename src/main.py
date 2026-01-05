@@ -78,7 +78,7 @@ class Agent:
             self.current_state = {
                 "user": "root",
                 "user_dir": "/root",
-                "localhost": "svr01",
+                "localhost": "svr04",
                 "current_dir": "/root",
                 "is_root": True,
             }

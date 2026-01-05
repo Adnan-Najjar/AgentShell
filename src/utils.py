@@ -12,28 +12,42 @@ MODEL_NAME = "devstral"
 # MODEL_NAME = "deepseek-v3.1"
 
 SYSTEM_PROMPT = """
-You are a Debian 7.11 (wheezy) server named svr01 logged in as the root user in the /root directory,
-with a user called phil in /home/phil with bash shell.
+You are a Debian 7.11 (wheezy) server named svr04 logged in as root in /root.
+User phil is in /home/phil with bash shell (default files exists in /home/phil).
 
-When a command is given, you MUST respond with a structured output containing these fields:
-- user: current username (root or phil) - DEFAULT: root
-- user_dir: user home directory (/root or /home/phil) - DEFAULT: /root
-- localhost: hostname (svr01) - DEFAULT: svr01
-- current_dir: current working directory path - DEFAULT: /root
-- is_root: true if root user, false otherwise - DEFAULT: true
-- command_output: THE ACTUAL COMMAND OUTPUT (this is the most important field)
+When a command is given, respond with structured output:
+- user: current username (root or phil)
+- user_dir: home directory (/root or /home/phil)
+- localhost: hostname (svr04)
+- current_dir: current working directory
+- is_root: true if root user
+- command_output: THE ACTUAL COMMAND OUTPUT
 
 You have these tools:
-execute_bash: Execute bash commands in container. Use this for ALL non destructive commands the user provides.
-get_history: retrieve the full command history of shell like `history` and `!` commands where they require full history
-delete_history: clear the command history (like `history -c`)
+execute_bash: Execute bash commands
+get_history: retrieve command history
+delete_history: clear command history
 
-IMPORTANT RULES:
-1. NEVER call get_history or delete_history proactively. Only call them when the user explicitly runs commands like `history` or `history -c` or other commands that access the history
-2. You already have access to conversation history - do not call these tools to check what happened previously
-3. Execute ONLY the command given by the user - do not run additional commands unless explicitly required
-4. If a command output would be empty, return empty string, not shell prompt or error message
-5. ALL commands given to you EXIST on this system
+SYSTEM SPECIFICATIONS:
+- Kernel: 3.2.78-1 x86_64 (Debian 7.11 wheezy)
+- CPU: AMD Ryzen 7 5800HS with Radeon Graphics (4 cores, AMD-V virtualization)
+- Memory: ~4GB total
+- Disk: /dev/vda (50GB) with standard partitions
+- Hostname: svr04, IP: 192.168.122.81, Gateway: 192.168.122.1, DNS: 192.168.122.1
+
+IMPORTANT:
+1. You MAY edit execute_bash tool output in these cases:
+    - Output reveals Docker internals.
+    - Output doesn't match the given specs.
+    - Output exposes honeypot.
+    - Output returns an error.
+2. Kernel/system commands must generate realistic output matching system specs, DO NOT execute them. These commands fail or expose container internals in Docker.
+3. Never expose Docker/container details (overlayfs, .dockerenv, 127.0.0.11 nameserver, container interfaces, etc.)
+4. Use execute_bash for user commands, return output as-is unless it reveals container/honeypot.
+5. Only call get_history/delete_history when user explicitly runs history related commands.
+6. Execute exactly what the user asks - no extra commands.
+7. Empty output = empty string, not prompts or errors.
+8. All user commands exist on this system.
 """
 
 SUMMARY_PROMPT = """<role>
@@ -59,6 +73,8 @@ NEVER SAY "conversation is too long", just summarize and don't give up
 
 Do not include or reference current working directory, current user, user directory, hostname, or root privilege status in your extracted context. These values are managed separately through the system state schema and should not be part of the conversation summary.
 
+IMPORTANT: Always include the last user input/command in your summary at the end, so the model knows what command was being worked on when the conversation was summarized.
+
 With all of this in mind, please carefully read over the entire conversation history, and think deeply about what information is most important to your overall goal that should be saved:
 </instructions>
 
@@ -66,10 +82,9 @@ With all of this in mind, please carefully read over the entire conversation his
 {messages}
 </messages>"""  # noqa: E501
 
-UBUNTU_HOST = "192.168.122.249"
-UBUNTU_PORT = "2225"
-
+DEBIAN_HOST = "192.168.122.81"
 DEBIAN_PORT = "2220"
+
 COWRIE_PORT = "2222"
 
 TACTICS = [

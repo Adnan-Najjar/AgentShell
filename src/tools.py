@@ -69,6 +69,10 @@ class Tools:
         if hasattr(self, "conn"):
             self.conn.close()
 
+    def __exit__(self):
+        if hasattr(self, "conn"):
+            self.conn.close()
+
     # ======================
     # ====  BASH TOOL  ====
     def _ensure_container(self):
@@ -78,21 +82,23 @@ class Tools:
                 self.container.start()
         except:
             self.container = self.client.containers.run(
-                "ubuntu:latest", # used ubuntu here because it has all the basic tools installed
+                "ubuntu:latest",  # used ubuntu here because it has all the basic tools installed
                 name=self.container_name,
                 detach=True,
                 tty=True,
             )
 
     def is_command_found(self, command: str) -> bool:
-        exit_code, _ = self.container.exec_run(cmd=["/bin/bash", "-c", f"hash {command}"])
+        exit_code, _ = self.container.exec_run(
+            cmd=["/bin/bash", "-c", f"command -v {command}"]
+        )
         return True if exit_code == 0 else False
 
     def execute_bash(self, command: str) -> str:
         exit_code, output = self.container.exec_run(cmd=["/bin/bash", "-c", command])
         if exit_code != 0:
-            return output.decode('utf-8')
-        return f"{command}: {output.decode("utf-8")}"
+            return output.decode("utf-8")
+        return f"{command}: {output.decode('utf-8')}"
 
     # ======================
 

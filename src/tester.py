@@ -18,7 +18,9 @@ def generate_llm_commands(output_filename: str):
     for i, command in enumerate(commands):
         response = agent.chat(command)
         output[command] = response
-        print(f"Command number: {i}, Command output: {response:.30}, Tokens {agent.total_tokens}")
+        print(
+            f"Command number: {i}, Command output: {response:.30}, Tokens {agent.total_tokens}"
+        )
     output["tokens_used"] = agent.total_tokens
 
     with open(output_filename, "w") as f:
@@ -109,20 +111,6 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--ubuntu",
-        action="store_true",
-        help="Collect all ubuntu data (commands + attack scenarios)",
-    )
-    parser.add_argument(
-        "--ubuntu-commands", action="store_true", help="Collect ubuntu commands data"
-    )
-    parser.add_argument(
-        "--ubuntu-scenarios",
-        action="store_true",
-        help="Collect ubuntu attack scenarios data",
-    )
-
-    parser.add_argument(
         "--llm",
         action="store_true",
         help="Generate all LLM data (commands + attack scenarios)",
@@ -151,12 +139,12 @@ if __name__ == "__main__":
 
     if args.control_commands or args.control:
         print("Collecting control commands data...")
-        collect_commands(f"{COMMANDS}/control.json", UBUNTU_PORT, UBUNTU_HOST)
+        collect_commands(f"{COMMANDS}/control.json", DEBIAN_PORT, DEBIAN_HOST)
         print("control commands data collection completed.")
 
     if args.control_scenarios or args.control:
         print("Collecting control attack scenarios data...")
-        collect_attack_scenarios(f"{SCENARIOS}/control.json", UBUNTU_PORT, UBUNTU_HOST)
+        collect_attack_scenarios(f"{SCENARIOS}/control.json", DEBIAN_PORT)
         print("control attack scenarios data collection completed.")
 
     if args.llm_commands or args.llm:
@@ -277,7 +265,34 @@ if __name__ == "__main__":
 ## Bar Chart
 
 ![MITRE ATTACK Bar Chart](bar_chart.png)
+
+## Line Chart
+
         """
+        steps = range(1, 10)
+
+        attack_scenarios = json.load(open(f"{SCENARIOS}/{MODEL_NAME}.json", "r"))
+        for tactic in TACTICS:
+            _, ax = plt.subplots(figsize=(6, 3))
+            tokens = []
+            for step in steps:
+                step_token = attack_scenarios[tactic + "_tokens"][f"step {step}"]
+                tokens.append(step_token)
+
+            ax.plot(steps, tokens, label="LLM")
+            ax.set_ylim(0, 7000)
+            ax.set_title(tactic)
+            ax.set_xlabel("Step")
+            ax.set_ylabel("Tokens")
+            ax.legend()
+
+            plt.tight_layout()
+            plt.savefig(
+                f"{RESULTS_DIR}/line_chart_{tactic}.png", dpi=300, bbox_inches="tight"
+            )
+
+        for tactic in TACTICS:
+            markdown_content += f"\n### {tactic.capitalize().replace("_"," ")}\n![{tactic} Line Chart](line_chart_{tactic}.png)\n\n"
 
         # Save to results.md
         with open(f"{RESULTS_DIR}/results.md", "w") as f:
