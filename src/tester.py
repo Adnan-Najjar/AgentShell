@@ -16,7 +16,11 @@ def generate_llm_commands(output_filename: str):
 
     commands = json.load(open(f"{COMMANDS}.json", "r"))
     for i, command in enumerate(commands):
-        response = agent.chat(command)
+        try:
+            response = agent.chat(command)
+        except:
+            time.sleep(300)
+            response = agent.chat(command)
         output[command] = response
         print(
             f"Command number: {i}, Command output: {response:.30}, Tokens {agent.total_tokens}"
@@ -36,11 +40,11 @@ def generate_llm_scenarios(output_filename: str):
         tactic_commands = {}
         tactic_tokens = {}
         for step, command in attack_scenarios[tactic].items():
-            result = agent.chat(command)
-            tactic_commands[step] = result
+            response = agent.chat(command)
+            tactic_commands[step] = response
             tactic_tokens[step] = agent.total_tokens
             print(
-                f"Attack scenario {tactic} at step: {step}, Output: {result:.30}, Tokens: {agent.total_tokens}"
+                f"Attack scenario {tactic} at step: {step}, Output: {response:.30}, Tokens: {agent.total_tokens}"
             )
         output[tactic] = tactic_commands
         output[tactic + "_tokens"] = tactic_tokens
@@ -70,7 +74,7 @@ def create_scenarios_bar_chart(completed_steps):
     ax.legend()
 
     plt.tight_layout()
-    plt.savefig(f"{RESULTS_DIR}/bar_chart.png", dpi=300, bbox_inches="tight")
+    plt.savefig(f"{OUTPUT_DIR}/bar_chart.png", dpi=300, bbox_inches="tight")
 
 
 if __name__ == "__main__":
@@ -158,11 +162,6 @@ if __name__ == "__main__":
     if args.analyze:
         print("=== RUNNING ANALYSIS ===")
 
-        # Create results directory if it doesn't exist
-        import os
-
-        os.makedirs(RESULTS_DIR, exist_ok=True)
-
         # Load commands output data
         commands = json.load(open(f"{COMMANDS}.json", "r"))
         llm = json.load(open(LLM_COMMANDS, "r"))
@@ -220,7 +219,7 @@ if __name__ == "__main__":
         plt.tight_layout()
 
         # Save the plot
-        plt.savefig(f"{RESULTS_DIR}/similarity_plot.png", dpi=300, bbox_inches="tight")
+        plt.savefig(f"{OUTPUT_DIR}/similarity_plot.png", dpi=300, bbox_inches="tight")
 
         def average(lst):
             return sum(lst) / len(lst) if lst else 0
@@ -288,14 +287,14 @@ if __name__ == "__main__":
 
             plt.tight_layout()
             plt.savefig(
-                f"{RESULTS_DIR}/line_chart_{tactic}.png", dpi=300, bbox_inches="tight"
+                f"{OUTPUT_DIR}/line_chart_{tactic}.png", dpi=300, bbox_inches="tight"
             )
 
         for tactic in TACTICS:
             markdown_content += f"\n### {tactic.capitalize().replace("_"," ")}\n![{tactic} Line Chart](line_chart_{tactic}.png)\n\n"
 
         # Save to results.md
-        with open(f"{RESULTS_DIR}/results.md", "w") as f:
+        with open(f"{OUTPUT_DIR}/results.md", "w") as f:
             f.write(markdown_content)
 
         print("Analysis completed. Results saved in output directory.")

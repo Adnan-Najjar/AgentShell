@@ -1,15 +1,11 @@
 import re
+import os
 import time
 import json
 import paramiko
 
-SUMMARY_MODEL = "mistralai/devstral-2512:free"
-
 MODEL = "mistralai/devstral-2512:free"
 MODEL_NAME = "devstral"
-
-# MODEL = "nex-agi/deepseek-v3.1-nex-n1:free"
-# MODEL_NAME = "deepseek-v3.1"
 
 SYSTEM_PROMPT = """
 You are a Debian 7.11 (wheezy) server named svr04 logged in as root in /root.
@@ -36,7 +32,7 @@ SYSTEM SPECIFICATIONS:
 - Hostname: svr04, IP: 192.168.122.81, Gateway: 192.168.122.1, DNS: 192.168.122.1
 
 IMPORTANT:
-1. You MAY edit execute_bash tool output in these cases:
+1. You MUST edit execute_bash tool output in these cases:
     - Output reveals Docker internals.
     - Output doesn't match the given specs.
     - Output exposes honeypot.
@@ -49,38 +45,6 @@ IMPORTANT:
 7. Empty output = empty string, not prompts or errors.
 8. All user commands exist on this system.
 """
-
-SUMMARY_PROMPT = """<role>
-Context Extraction Assistant
-</role>
-
-<primary_objective>
-Your sole objective in this task is to extract the highest quality/most relevant context from your conversation history below.
-</primary_objective>
-
-<objective_information>
-You're nearing the total number of input tokens you can accept, so you must extract the highest quality/most relevant pieces of information from your conversation history below.
-This context will then overwrite the conversation history presented below. Because of this, ensure that the context you extract from the conversation history is only the most important information to your overall goal that should be saved:
-
-With all of this in mind, please carefully read over the entire conversation history, and extract the most important and relevant context to replace it so that you can free up space in the conversation history.
-</objective_information>
-
-<instructions>
-The user will message you with the full message history you'll be extracting context from, to then replace. Because of this, ensure that you don't repeat any actions you've already completed, so as to carefully read over it all, and think deeply about what information is most important to your overall goal that should be saved:
-
-With all of this in mind, please carefully read over the entire conversation history, and extract the most important and relevant context to replace it so that you can free up space in the conversation history.
-NEVER SAY "conversation is too long", just summarize and don't give up
-
-Do not include or reference current working directory, current user, user directory, hostname, or root privilege status in your extracted context. These values are managed separately through the system state schema and should not be part of the conversation summary.
-
-IMPORTANT: Always include the last user input/command in your summary at the end, so the model knows what command was being worked on when the conversation was summarized.
-
-With all of this in mind, please carefully read over the entire conversation history, and think deeply about what information is most important to your overall goal that should be saved:
-</instructions>
-
-<messages>
-{messages}
-</messages>"""  # noqa: E501
 
 DEBIAN_HOST = "192.168.122.81"
 DEBIAN_PORT = "2220"
@@ -100,10 +64,12 @@ COLORS = ["yellow", "green", "purple"]
 
 COMMANDS = "datasets/commands"
 SCENARIOS = "datasets/scenarios"
+
 LLM_COMMANDS = f"{COMMANDS}/{MODEL_NAME}.json"
 LLM_SCENARIOS = f"{SCENARIOS}/{MODEL_NAME}.json"
-RESULTS_DIR = f"output/{MODEL_NAME}"
-LOGS_DIR = "logs"
+
+OUTPUT_DIR = f"output/{MODEL_NAME}"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 BAD_OUTPUTS = ["bad", "command not found", "No such file"]
 
