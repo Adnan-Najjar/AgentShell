@@ -19,7 +19,7 @@ Honeypot simulation system using LLM agents to study attacker behavior patterns 
 
     Edit `.env` and set your OpenRouter API key:
     ```bash
-    OPENROUTER_API_KEY="your_openrouter_api_key_here"
+    OPENAI_API_KEY="your_openai_api_key_here"
     ```
 
 4. Docker Setup (for testing)

@@ -1,16 +1,13 @@
 [project]
-name = "hivepot"
+name = "low-risk"
 version = "0.1.0"
-description = "Honeypot simulation system using LLM agents to study attacker behavior patterns compared to traditional honeypots."
+description = "LLM Honeypot context size optimization using a custom algorithm"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "docker>=7.1.0",
-    "langchain>=1.2.0",
-    "langchain-openai>=1.1.6",
-    "langgraph-checkpoint-sqlite>=3.0.1",
     "levenshtein>=0.27.3",
     "matplotlib>=3.10.8",
+    "openai>=2.15.0",
     "paramiko>=4.0.0",
-    "pydantic>=2.12.5",
+    "rich>=14.2.0",
 ]

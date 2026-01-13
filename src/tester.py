@@ -11,21 +11,17 @@ from main import *
 
 
 def generate_llm_commands(output_filename: str):
-    agent = Agent("commands")
+    ai = FrontendInterface()
     output = {}
 
     commands = json.load(open(f"{COMMANDS}.json", "r"))
     for i, command in enumerate(commands):
-        try:
-            response = agent.chat(command)
-        except:
-            time.sleep(300)
-            response = agent.chat(command)
+        response = ai.run(command)
         output[command] = response
         print(
-            f"Command number: {i}, Command output: {response:.30}, Tokens {agent.total_tokens}"
+            f"Command number: {i}, Command output: {response:.30}, Tokens {ai.total_tokens}"
         )
-    output["tokens_used"] = agent.total_tokens
+    output["tokens_used"] = ai.total_tokens
 
     with open(output_filename, "w") as f:
         json.dump(output, f, indent=2)
@@ -36,15 +32,15 @@ def generate_llm_scenarios(output_filename: str):
 
     attack_scenarios: dict = json.load(open("datasets/attack_scenarios.json", "r"))
     for tactic in TACTICS:
-        agent = Agent(tactic)
+        ai = FrontendInterface()
         tactic_commands = {}
         tactic_tokens = {}
         for step, command in attack_scenarios[tactic].items():
-            response = agent.chat(command)
+            response = ai.run(command)
             tactic_commands[step] = response
-            tactic_tokens[step] = agent.total_tokens
+            tactic_tokens[step] = ai.total_tokens
             print(
-                f"Attack scenario {tactic} at step: {step}, Output: {response:.30}, Tokens: {agent.total_tokens}"
+                f"Attack scenario {tactic} at step: {step}, Output: {response:.30}, Tokens: {ai.total_tokens}"
             )
         output[tactic] = tactic_commands
         output[tactic + "_tokens"] = tactic_tokens
@@ -279,7 +275,7 @@ if __name__ == "__main__":
                 tokens.append(step_token)
 
             ax.plot(steps, tokens, label="LLM")
-            ax.set_ylim(0, 7000)
+            ax.set_ylim(0, 4000)
             ax.set_title(tactic)
             ax.set_xlabel("Step")
             ax.set_ylabel("Tokens")

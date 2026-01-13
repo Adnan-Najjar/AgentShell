@@ -4,47 +4,20 @@ import time
 import json
 import paramiko
 
-MODEL = "mistralai/devstral-2512:free"
-MODEL_NAME = "devstral"
+MODEL = "openai/gpt-4o-mini"
+MODEL_NAME = "gpt-4o-mini"
+
+BASE_URL = "https://models.github.ai/inference"
+API_KEY = os.environ["OPENAI_API_KEY"]
 
 SYSTEM_PROMPT = """
-You are a Debian 7.11 (wheezy) server named svr04 logged in as root in /root.
-User phil is in /home/phil with bash shell (default files exists in /home/phil).
-
-When a command is given, respond with structured output:
-- user: current username (root or phil)
-- user_dir: home directory (/root or /home/phil)
-- localhost: hostname (svr04)
-- current_dir: current working directory
-- is_root: true if root user
-- command_output: THE ACTUAL COMMAND OUTPUT
-
-You have these tools:
-execute_bash: Execute bash commands
-get_history: retrieve command history
-delete_history: clear command history
-
-SYSTEM SPECIFICATIONS:
-- Kernel: 3.2.78-1 x86_64 (Debian 7.11 wheezy)
-- CPU: AMD Ryzen 7 5800HS with Radeon Graphics (4 cores, AMD-V virtualization)
-- Memory: ~4GB total
-- Disk: /dev/vda (50GB) with standard partitions
-- Hostname: svr04, IP: 192.168.122.81, Gateway: 192.168.122.1, DNS: 192.168.122.1
-
-IMPORTANT:
-1. You MUST edit execute_bash tool output in these cases:
-    - Output reveals Docker internals.
-    - Output doesn't match the given specs.
-    - Output exposes honeypot.
-    - Output returns an error.
-2. Kernel/system commands must generate realistic output matching system specs, DO NOT execute them. These commands fail or expose container internals in Docker.
-3. Never expose Docker/container details (overlayfs, .dockerenv, 127.0.0.11 nameserver, container interfaces, etc.)
-4. Use execute_bash for user commands, return output as-is unless it reveals container/honeypot.
-5. Only call get_history/delete_history when user explicitly runs history related commands.
-6. Execute exactly what the user asks - no extra commands.
-7. Empty output = empty string, not prompts or errors.
-8. All user commands exist on this system.
-"""
+You are a fully configured Debian 7 system named
+svr01 logged in as the root user in the /root directory
+with all packages installed. When given a command,
+respond with the output of that command. Send only
+the command output. Do not send any additional notes
+or comments under any circumstance.
+Send nil if that command has no output."""
 
 DEBIAN_HOST = "192.168.122.81"
 DEBIAN_PORT = "2220"
@@ -100,7 +73,7 @@ def run_cmd_ssh(cmd: str, port: str, hostname="localhost") -> str:
         # Open an interactive shell
         channel = client.invoke_shell()
 
-        # Send the command
+        # Send command
         channel.send(cmd.encode())
         channel.send(b"\n")
 
@@ -114,24 +87,24 @@ def run_cmd_ssh(cmd: str, port: str, hostname="localhost") -> str:
                 output += ansi_escape.sub("", chunk)
                 if re.search(r"[$#]", output.strip().splitlines()[-1]):
                     break
-            if time.time() - start_time > 600:
-                break
-            time.sleep(0.1)
+                if time.time() - start_time > 600:
+                    break
+                time.sleep(0.1)
 
-        output = output.split(cmd)
-        if len(output) == 1:
-            output = ""
-        else:
-            output = output[-1]
-        output = re.sub(r".*[#$]", "", output)
+            output = output.split(cmd)
+            if len(output) == 1:
+                output = ""
+            else:
+                output = output[-1]
+                output = re.sub(r".*[#$]", "", output)
 
         # Close channel and client explicitly
         channel.close()
         client.close()
 
         return output.strip()
+
     except Exception as e:
-        print(f"SSH connection error: {e}")
         return "error"
 
 
