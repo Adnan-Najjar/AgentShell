@@ -4,47 +4,154 @@ import time
 import json
 import paramiko
 
-MODEL = "mistralai/devstral-2512:free"
-MODEL_NAME = "devstral"
+# ─── API config ───────────────────────────────────────────────────────────────
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+API_KEY = os.environ.get("GROQ_API_KEY", "")
 
+# ─── Model config ───────────────────────────────────────────────────────────────
+MODEL = "llama-3.1-8b-instant"
+MODEL_NAME = "llama-3.1"
 SYSTEM_PROMPT = """
-You are a Debian 7.11 (wheezy) server named svr04 logged in as root in /root.
-User phil is in /home/phil with bash shell (default files exists in /home/phil).
+You are a fully configured Debian 7 system named
+svr01 logged in as the root user in the /root directory
+with all packages installed. When given a command,
+respond with the output of that command. Send only
+the command output. Do not send any additional notes
+or comments under any circumstance.
+Send nil if that command has no output."""
 
-When a command is given, respond with structured output:
-- user: current username (root or phil)
-- user_dir: home directory (/root or /home/phil)
-- localhost: hostname (svr04)
-- current_dir: current working directory
-- is_root: true if root user
-- command_output: THE ACTUAL COMMAND OUTPUT
+RETRY_DELAYS = [3, 5, 10]  # seconds — silent retry on 429
+MAX_TOKENS = 256
+TEMPERATURE = 0.3
 
-You have these tools:
-execute_bash: Execute bash commands
-get_history: retrieve command history
-delete_history: clear command history
+# ─── History Pruning parameters (Algorithm 1) ─────────────────────────────────
+WINDOW_SIZE = 3
+RELEVANCE_SCORE = 1
 
-SYSTEM SPECIFICATIONS:
-- Kernel: 3.2.78-1 x86_64 (Debian 7.11 wheezy)
-- CPU: AMD Ryzen 7 5800HS with Radeon Graphics (4 cores, AMD-V virtualization)
-- Memory: ~4GB total
-- Disk: /dev/vda (50GB) with standard partitions
-- Hostname: svr04, IP: 192.168.122.81, Gateway: 192.168.122.1, DNS: 192.168.122.1
+# ─── Command dependency graph ─────────────────────────────────────────────────
+CMD_DEPS: dict[str, list[str]] = {
+    "ls": ["cd", "find", "cat", "grep", "rm", "cp", "mv"],
+    "cd": ["ls", "pwd", "cat", "mkdir"],
+    "cat": ["grep", "wc", "head", "tail", "sort"],
+    "mkdir": ["cd", "ls", "touch", "rm"],
+    "useradd": ["passwd", "usermod", "id"],
+    "grep": ["cat", "ls", "find"],
+    "sudo": ["apt", "systemctl", "chmod", "useradd", "passwd"],
+    "ps": ["kill", "grep"],
+    "find": ["cat", "grep", "rm", "cp"],
+    "ssh": ["scp", "curl"],
+    "nmap": ["ping", "netstat", "ss", "curl"],
+    "git": ["make", "gcc"],
+    "chmod": ["ls", "find"],
+    "wget": ["curl", "tar", "unzip"],
+    "curl": ["wget", "ssh"],
+}
 
-IMPORTANT:
-1. You MUST edit execute_bash tool output in these cases:
-    - Output reveals Docker internals.
-    - Output doesn't match the given specs.
-    - Output exposes honeypot.
-    - Output returns an error.
-2. Kernel/system commands must generate realistic output matching system specs, DO NOT execute them. These commands fail or expose container internals in Docker.
-3. Never expose Docker/container details (overlayfs, .dockerenv, 127.0.0.11 nameserver, container interfaces, etc.)
-4. Use execute_bash for user commands, return output as-is unless it reveals container/honeypot.
-5. Only call get_history/delete_history when user explicitly runs history related commands.
-6. Execute exactly what the user asks - no extra commands.
-7. Empty output = empty string, not prompts or errors.
-8. All user commands exist on this system.
-"""
+# ─── Shell command whitelist (regex) ─────────────────────────────────────────
+_SHELL_PATTERNS = [
+    r"^ls(\s|$)",
+    r"^pwd$",
+    r"^cd(\s|$)",
+    r"^cat(\s|$)",
+    r"^echo(\s|$)",
+    r"^mkdir(\s|$)",
+    r"^rm(\s|$)",
+    r"^cp(\s|$)",
+    r"^mv(\s|$)",
+    r"^touch(\s|$)",
+    r"^grep(\s|$)",
+    r"^find(\s|$)",
+    r"^ps(\s|$)",
+    r"^top$",
+    r"^htop$",
+    r"^df(\s|$)",
+    r"^du(\s|$)",
+    r"^chmod(\s|$)",
+    r"^chown(\s|$)",
+    r"^whoami$",
+    r"^id$",
+    r"^uname(\s|$)",
+    r"^hostname$",
+    r"^ifconfig(\s|$)",
+    r"^ip(\s|$)",
+    r"^ping(\s|$)",
+    r"^netstat(\s|$)",
+    r"^ss(\s|$)",
+    r"^curl(\s|$)",
+    r"^wget(\s|$)",
+    r"^tar(\s|$)",
+    r"^unzip(\s|$)",
+    r"^gzip(\s|$)",
+    r"^gunzip(\s|$)",
+    r"^ssh(\s|$)",
+    r"^scp(\s|$)",
+    r"^nmap(\s|$)",
+    r"^python(\s|$)",
+    r"^python3(\s|$)",
+    r"^perl(\s|$)",
+    r"^ruby(\s|$)",
+    r"^bash(\s|$)",
+    r"^sh(\s|$)",
+    r"^zsh(\s|$)",
+    r"^env$",
+    r"^export(\s|$)",
+    r"^history$",
+    r"^sudo(\s|$)",
+    r"^apt(\s|$)",
+    r"^apt-get(\s|$)",
+    r"^yum(\s|$)",
+    r"^dnf(\s|$)",
+    r"^useradd(\s|$)",
+    r"^usermod(\s|$)",
+    r"^userdel(\s|$)",
+    r"^passwd(\s|$)",
+    r"^crontab(\s|$)",
+    r"^systemctl(\s|$)",
+    r"^service(\s|$)",
+    r"^kill(\s|$)",
+    r"^killall(\s|$)",
+    r"^pkill(\s|$)",
+    r"^which(\s|$)",
+    r"^whereis(\s|$)",
+    r"^man(\s|$)",
+    r"^help$",
+    r"^exit$",
+    r"^clear$",
+    r"^date$",
+    r"^cal$",
+    r"^wc(\s|$)",
+    r"^head(\s|$)",
+    r"^tail(\s|$)",
+    r"^sort(\s|$)",
+    r"^awk(\s|$)",
+    r"^sed(\s|$)",
+    r"^cut(\s|$)",
+    r"^tr(\s|$)",
+    r"^nc(\s|$)",
+    r"^telnet(\s|$)",
+    r"^ftp(\s|$)",
+    r"^sftp(\s|$)",
+    r"^git(\s|$)",
+    r"^make(\s|$)",
+    r"^gcc(\s|$)",
+    r"^g\+\+(\s|$)",
+    r"^vim(\s|$)",
+    r"^nano(\s|$)",
+    r"^less(\s|$)",
+    r"^more(\s|$)",
+    r"^mount(\s|$)",
+    r"^umount(\s|$)",
+    r"^fdisk(\s|$)",
+    r"^iptables(\s|$)",
+    r"^ufw(\s|$)",
+    r"^/bin/",
+    r"^/usr/",
+    r"^/sbin/",
+    r"^\./",
+    r"^/",
+    r"^[a-z0-9_-]+\.sh(\s|$)",
+]
+COMPILED_PATTERNS = [re.compile(p, re.IGNORECASE) for p in _SHELL_PATTERNS]
 
 DEBIAN_HOST = "192.168.122.81"
 DEBIAN_PORT = "2220"

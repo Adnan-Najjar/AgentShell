@@ -11,7 +11,7 @@ from main import *
 
 
 def generate_llm_commands(output_filename: str):
-    agent = Agent("commands")
+    agent = AI()
     output = {}
 
     commands = json.load(open(f"{COMMANDS}.json", "r"))
@@ -36,7 +36,7 @@ def generate_llm_scenarios(output_filename: str):
 
     attack_scenarios: dict = json.load(open("datasets/attack_scenarios.json", "r"))
     for tactic in TACTICS:
-        agent = Agent(tactic)
+        agent = AI()
         tactic_commands = {}
         tactic_tokens = {}
         for step, command in attack_scenarios[tactic].items():

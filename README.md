@@ -19,7 +19,7 @@ Honeypot simulation system using LLM agents to study attacker behavior patterns 
 
     Edit `.env` and set your OpenRouter API key:
     ```bash
-    OPENROUTER_API_KEY="your_openrouter_api_key_here"
+    GROQ_API_KEY="your_groq_api_key_here"
     ```
 
 4. Docker Setup (for testing)
@@ -59,7 +59,6 @@ uv run python src/tester.py --analyze
 
 - `src/`
     - `main.py` - Agent implementation with shell simulation
-    - `tools.py` - Tool definitions
     - `utils.py` - Configuration and utilities
     - `tester.py` - Data collection and analysis script
 - `datasets/` - Command and attack scenario datasets
