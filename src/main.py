@@ -1,12 +1,14 @@
-from langchain_openai import ChatOpenAI
-from langchain.agents import create_agent, AgentState
+import os
+
+from langchain.agents import AgentState, create_agent
 from langchain.agents.structured_output import ToolStrategy
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
+from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, SecretStr
-import os
-from utils import SYSTEM_PROMPT, MODEL
+
 from tools import Tools
+from utils import MODEL, SYSTEM_PROMPT
 
 
 class ShellAgentState(AgentState):

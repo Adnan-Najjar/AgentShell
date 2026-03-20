@@ -1,5 +1,5 @@
 [project]
-name = "hivepot"
+name = "AgentShell"
 version = "0.1.0"
 description = "Honeypot simulation system using LLM agents to study attacker behavior patterns compared to traditional honeypots."
 readme = "README.md"

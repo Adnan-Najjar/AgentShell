@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 
+import json
+
+from Levenshtein import ratio
 import matplotlib
+import matplotlib.pyplot as plt
+
+from main import *
+from utils import *
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import json
-from Levenshtein import ratio
-from utils import *
-from main import *
+
 
 
 def generate_llm_commands(output_filename: str):
