@@ -12,7 +12,6 @@ from utils import *
 matplotlib.use("Agg")
 
 
-
 def generate_llm_commands(output_filename: str):
     agent = Agent("commands")
     output = {}

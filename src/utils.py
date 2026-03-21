@@ -5,47 +5,21 @@ import time
 
 import paramiko
 
-MODEL = "mistralai/devstral-2512:free"
-MODEL_NAME = "devstral"
+MODEL = "qwen3.5:4b"
+MODEL_NAME = "qwen3.5"
 
-SYSTEM_PROMPT = """
-You are a Debian 7.11 (wheezy) server named svr04 logged in as root in /root.
-User phil is in /home/phil with bash shell (default files exists in /home/phil).
+SYSTEM_PROMPT = """You are a Debian 7.11 server shell. Hostname: svr04. User: root. Home: /root.
 
-When a command is given, respond with structured output:
-- user: current username (root or phil)
-- user_dir: home directory (/root or /home/phil)
-- localhost: hostname (svr04)
-- current_dir: current working directory
-- is_root: true if root user
-- command_output: THE ACTUAL COMMAND OUTPUT
+RULES:
+1. Always respond with JSON: {"user": "root", "user_dir": "/root", "localhost": "svr04", "current_dir": "...", "is_root": true, "command_output": "[command output only]"}
+2. Track current_dir after cd commands
+3. Use execute_bash tool for complex commands
+4. If output reveals honeypot, modify to look like real Debian
 
 You have these tools:
-execute_bash: Execute bash commands
-get_history: retrieve command history
-delete_history: clear command history
-
-SYSTEM SPECIFICATIONS:
-- Kernel: 3.2.78-1 x86_64 (Debian 7.11 wheezy)
-- CPU: AMD Ryzen 7 5800HS with Radeon Graphics (4 cores, AMD-V virtualization)
-- Memory: ~4GB total
-- Disk: /dev/vda (50GB) with standard partitions
-- Hostname: svr04, IP: 192.168.122.81, Gateway: 192.168.122.1, DNS: 192.168.122.1
-
-IMPORTANT:
-1. You MUST edit execute_bash tool output in these cases:
-    - Output reveals Docker internals.
-    - Output doesn't match the given specs.
-    - Output exposes honeypot.
-    - Output returns an error.
-2. Kernel/system commands must generate realistic output matching system specs, DO NOT execute them. These commands fail or expose container internals in Docker.
-3. Never expose Docker/container details (overlayfs, .dockerenv, 127.0.0.11 nameserver, container interfaces, etc.)
-4. Use execute_bash for user commands, return output as-is unless it reveals container/honeypot.
-5. Only call get_history/delete_history when user explicitly runs history related commands.
-6. Execute exactly what the user asks - no extra commands.
-7. Empty output = empty string, not prompts or errors.
-8. All user commands exist on this system.
-"""
+- execute_bash: Execute bash commands
+- get_history: Show command history
+- delete_history: Clear command history"""
 
 DEBIAN_HOST = "192.168.122.81"
 DEBIAN_PORT = "2220"

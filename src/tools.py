@@ -104,11 +104,11 @@ class Tools:
 
         return True if exit_code == 0 else False, error_msg
 
-    def execute_bash(self, command: str) -> str:
-        exit_code, output = self.container.exec_run(cmd=["/bin/bash", "-c", command])
-        if exit_code != 0:
-            return output.decode("utf-8")
-        return f"{command}: {output.decode('utf-8')}"
+    def execute_bash(self, command: str, current_dir: str) -> str:
+        _, output = self.container.exec_run(
+            cmd=["/bin/bash", "-c", f"(cd {current_dir} && {command})"]
+        )
+        return output.decode("utf-8")
 
     # ======================
 
@@ -116,17 +116,17 @@ class Tools:
         return [
             StructuredTool.from_function(
                 func=self.get_history,
-                description="ONLY use when user explicitly requests command history. DO NOT call this tool proactively or to check previous interactions - you already have access to conversation history.",
+                description="Show command history",
                 name="get_history",
             ),
             StructuredTool.from_function(
                 func=self.delete_history,
-                description="ONLY use when user explicitly requests deletion of the command history.",
+                description="Clear command history",
                 name="delete_history",
             ),
             StructuredTool.from_function(
                 func=self.execute_bash,
-                description="ONLY use this tool for complex bash piping and string manipulation operations that require shell features. Do not use for simple commands or commands that need kernel access - respond directly instead.",
+                description="Execute bash commands",
                 name="execute_bash",
             ),
         ]

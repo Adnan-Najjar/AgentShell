@@ -1,11 +1,9 @@
-import os
-
 from langchain.agents import AgentState, create_agent
 from langchain.agents.structured_output import ToolStrategy
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, SecretStr
+from langchain_ollama import ChatOllama
+from pydantic import BaseModel
 
 from tools import Tools
 from utils import MODEL, SYSTEM_PROMPT
@@ -43,9 +41,7 @@ class Agent:
         }
         self.total_tokens = 0
 
-        self.model = ChatOpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=SecretStr(os.environ["OPENROUTER_API_KEY"]),
+        self.model = ChatOllama(
             model=MODEL,
             temperature=0,
             seed=42,
@@ -68,7 +64,7 @@ class Agent:
                 tokens += len(msg.content)
             elif isinstance(msg, AIMessage):
                 input_tokens = int(tokens / 4)
-                last_tokens = msg.response_metadata["token_usage"]["total_tokens"]
+                last_tokens = msg.usage_metadata["total_tokens"]  # type: ignore
                 return last_tokens + input_tokens
         return 0
 
@@ -124,5 +120,6 @@ if __name__ == "__main__":
         q = input(agent.shell_prompt)
         if q != "":
             response = agent.chat(q)
+            print("Token used:", agent.total_tokens)
             if response != "":
                 print(response)
