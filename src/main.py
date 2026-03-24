@@ -72,6 +72,15 @@ class Agent:
         prompt = f"{state['user']}@{state['localhost']}:{state['current_dir']}{'#' if state['is_root'] else '$'} "
         return prompt.replace(state["user_dir"], "~", 1)
 
+    def _format_state(self) -> str:
+        """Format current state for LLM context."""
+        return f"""Current State:
+- User: {self.current_state["user"]}
+- Home: {self.current_state["user_dir"]}
+- Hostname: {self.current_state["localhost"]}
+- Current Directory: {self.current_state["current_dir"]}
+- Is Root: {self.current_state["is_root"]}"""
+
     def chat(self, query: str) -> str:
         output = ""
         # Add input to DB
@@ -83,8 +92,16 @@ class Agent:
         if not valid:
             output = error_msg
         else:
+            # Build full query with state context
+            state_context = self._format_state()
+            full_query = f"""{state_context}
+
+User Query: {query}
+
+Respond with JSON only."""
+
             result = self.agent.invoke(
-                {"messages": [HumanMessage(content=query)]},
+                {"messages": [HumanMessage(content=full_query)]},
                 self.config,
             )
             try:

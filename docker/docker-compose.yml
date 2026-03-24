@@ -28,7 +28,7 @@ services:
     ports:
       - "2221:2221"
       - "8080:8080"
-      - "15000:15000"
+      - "15300:15300"
     build:
       context: .
       dockerfile: attacker-server.Dockerfile

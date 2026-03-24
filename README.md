@@ -1,4 +1,4 @@
-# HivePot
+# AgentShell
 
 Honeypot simulation system using LLM agents to study attacker behavior patterns compared to traditional honeypots.
 
@@ -9,20 +9,7 @@ Honeypot simulation system using LLM agents to study attacker behavior patterns 
     ```bash
     uv sync
     ```
-3. Configure environment variables
-
-    Copy the example environment file and add your API keys:
-
-    ```bash
-    cp .env.example .env
-    ```
-
-    Edit `.env` and set your OpenRouter API key:
-    ```bash
-    OPENROUTER_API_KEY="your_openrouter_api_key_here"
-    ```
-
-4. Docker Setup (for testing)
+3. Docker Setup (for testing)
 
     ```bash
     cd docker

