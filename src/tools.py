@@ -33,6 +33,7 @@ class Tools:
         self.conn.commit()
 
     def get_history(self) -> str:
+        """Show command history."""
         cursor = self.conn.cursor()
         cursor.execute(
             f"SELECT ROW_NUMBER() OVER (ORDER BY id), command FROM {self.id} WHERE deleted = 0 LIMIT 500"
@@ -48,6 +49,7 @@ class Tools:
         return output
 
     def set_history(self, command: str) -> int:
+        """Store command in history."""
         cursor = self.conn.cursor()
         cursor.execute(
             f"INSERT INTO {self.id} (command, output) VALUES (?, NULL)", (command,)
@@ -56,6 +58,7 @@ class Tools:
         return cursor.lastrowid if cursor.lastrowid else 1
 
     def update_history(self, cmd_id: int, output: str):
+        """Update command output in history."""
         cursor = self.conn.cursor()
         cursor.execute(
             f"UPDATE {self.id} SET output = ? WHERE id = ?", (output, cmd_id)
@@ -63,6 +66,7 @@ class Tools:
         self.conn.commit()
 
     def delete_history(self):
+        """Clear all command history."""
         cursor = self.conn.cursor()
         cursor.execute(f"UPDATE {self.id} SET deleted = 1")
         self.conn.commit()
@@ -105,10 +109,14 @@ class Tools:
         return True if exit_code == 0 else False, error_msg
 
     def execute_bash(self, command: str, current_dir: str) -> str:
+        """Execute bash command and return output."""
         _, output = self.container.exec_run(
             cmd=["/bin/bash", "-c", f"(cd {current_dir} && {command})"]
         )
-        return output.decode("utf-8")
+        try:
+            return output.decode("utf-8") or ""
+        except UnicodeDecodeError:
+            return f"[binary output: {len(output)} bytes]"
 
     # ======================
 

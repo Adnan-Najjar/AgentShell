@@ -25,10 +25,10 @@ RUN echo '<h1>Hello World!</h1>' > /var/www/index.html
 RUN mkdir -p /home/eve/received/
 RUN echo '#!/bin/bash' > /home/eve/nc.sh && \
     echo 'while true; do' >> /home/eve/nc.sh && \
-    echo '    nc -l -p 15000 > "/home/eve/received/$(date +%Y%m%d_%H%M%S).gz"' >> /home/eve/nc.sh && \
+    echo '    nc -l -p 15300 > "/home/eve/received/$(date +%Y%m%d_%H%M%S).gz"' >> /home/eve/nc.sh && \
     echo 'done' >> /home/eve/nc.sh && \
     chmod +x /home/eve/nc.sh
 
-EXPOSE 2221 8080 15000
+EXPOSE 2221 8080 15300
 
 CMD /bin/bash -c "/usr/sbin/sshd && busybox httpd -f -p 8080 -h /var/www & /home/eve/nc.sh"
