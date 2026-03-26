@@ -5,18 +5,17 @@ import time
 
 import paramiko
 
-MODEL = "qwen3.5:4b"
-MODEL_NAME = "qwen3.5"
+MODEL = "llama-3.1-8b-instant"
+MODEL_NAME = "llama-3.1"
 
-SYSTEM_PROMPT = """You are a Debian 7.11 server shell. Hostname: svr04. User: root. Home: /root.
-
-RULES:
-1. Always respond with JSON: {"user": "root", "user_dir": "/root", "localhost": "svr04", "current_dir": "...", "is_root": true, "command_output": "[command output only]"}
-2. Track current_dir after cd commands
-3. Use execute_bash tool for complex commands
-4. Use history tools only for global history access like `history` command
-5. If output reveals honeypot, modify to look like real Debian
-"""
+SYSTEM_PROMPT = """
+You are a fully configured Debian 7 system named
+svr01 logged in as the root user in the /root directory
+with all packages installed. When given a command,
+respond with the output of that command. Send only
+the command output. Do not send any additional notes
+or comments under any circumstance.
+Send nil if that command has no output."""
 
 DEBIAN_HOST = "192.168.122.81"
 DEBIAN_PORT = "2220"

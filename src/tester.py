@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 
-import json
-
-from Levenshtein import ratio
 import matplotlib
-import matplotlib.pyplot as plt
-
-from main import *
-from utils import *
 
 matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import json
+from Levenshtein import ratio
+from utils import *
+from main import *
 
 
 def generate_llm_commands(output_filename: str):
-    agent = Agent("commands")
+    agent = AI()
     output = {}
 
     commands = json.load(open(f"{COMMANDS}.json", "r"))
@@ -38,19 +36,16 @@ def generate_llm_scenarios(output_filename: str):
 
     attack_scenarios: dict = json.load(open("datasets/attack_scenarios.json", "r"))
     for tactic in TACTICS:
-        agent = Agent(tactic)
+        agent = AI()
         tactic_commands = {}
         tactic_tokens = {}
         for step, command in attack_scenarios[tactic].items():
             response = agent.chat(command)
             tactic_commands[step] = response
             tactic_tokens[step] = agent.total_tokens
-            try:
-                print(
-                    f"Attack scenario {tactic} at step: {step}, Output: {response:.30}, Tokens: {agent.total_tokens}"
-                )
-            except:
-                continue
+            print(
+                f"Attack scenario {tactic} at step: {step}, Output: {response:.30}, Tokens: {agent.total_tokens}"
+            )
         output[tactic] = tactic_commands
         output[tactic + "_tokens"] = tactic_tokens
 
