@@ -1,13 +1,13 @@
 services:
-  cowrie:
-    image: cowrie/cowrie:latest
-    container_name: cowrie
-    ports:
-      - "2222:2222"
-    restart: unless-stopped
-    networks:
-      cowrie-net:
-        ipv4_address: 172.18.0.4
+  # cowrie:
+  #   image: cowrie/cowrie:latest
+  #   container_name: cowrie
+  #   ports:
+  #     - "2222:2222"
+  #   restart: unless-stopped
+  #   networks:
+  #     cowrie-net:
+  #       ipv4_address: 172.18.0.4
 
   debian-sandbox:
     container_name: debian-sandbox
@@ -22,20 +22,20 @@ services:
         ipv4_address: 172.18.0.20
     restart: unless-stopped
 
-  attacker-server:
-    container_name: attacker-server
-    hostname: attacker-server 
-    ports:
-      - "2221:2221"
-      - "8080:8080"
-      - "15300:15300"
-    build:
-      context: .
-      dockerfile: attacker-server.Dockerfile
-    networks:
-      cowrie-net:
-        ipv4_address: 172.18.0.21
-    restart: unless-stopped
+  # attacker-server:
+  #   container_name: attacker-server
+  #   hostname: attacker-server 
+  #   ports:
+  #     - "2221:2221"
+  #     - "8080:8080"
+  #     - "15300:15300"
+  #   build:
+  #     context: .
+  #     dockerfile: attacker-server.Dockerfile
+  #   networks:
+  #     cowrie-net:
+  #       ipv4_address: 172.18.0.21
+  #   restart: unless-stopped
 
 networks:
   cowrie-net:

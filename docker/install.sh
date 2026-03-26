@@ -14,7 +14,7 @@ apt-get install -y --force-yes --no-install-recommends -o Acquire::Check-Valid-U
     grep sed gawk net-tools iproute iputils-ping traceroute \
     wget curl dnsutils procps psmisc tree vim-tiny nano openssl \
     gzip bzip2 xz-utils zip unzip cron netcat-traditional gnupg \
-    iptables whois busybox sudo sshpass && \
+    iptables whois busybox sudo sshpass man && \
     apt-get clean
 
 mkdir -p /var/run/sshd

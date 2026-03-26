@@ -6,16 +6,16 @@ import time
 import paramiko
 
 MODEL = "llama-3.1-8b-instant"
-MODEL_NAME = "llama-3.1"
+MODEL_NAME = "llama-3.1-norag"
 
-SYSTEM_PROMPT = """
-You are a fully configured Debian 7 system named
+SYSTEM_PROMPT = """You are a fully configured Debian 7 system named
 svr01 logged in as the root user in the /root directory
 with all packages installed. When given a command,
 respond with the output of that command. Send only
 the command output. Do not send any additional notes
 or comments under any circumstance.
 Send nil if that command has no output."""
+
 
 DEBIAN_HOST = "192.168.122.81"
 DEBIAN_PORT = "2220"
