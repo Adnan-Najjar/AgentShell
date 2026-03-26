@@ -1,6 +1,6 @@
-# HivePot
+# ShellBox
 
-Honeypot simulation system using LLM agents to study attacker behavior patterns compared to traditional honeypots.
+ShellBox paper implementation.
 
 ## How to Setup
 
@@ -17,7 +17,7 @@ Honeypot simulation system using LLM agents to study attacker behavior patterns 
     cp .env.example .env
     ```
 
-    Edit `.env` and set your OpenRouter API key:
+    Edit `.env` and set your GROQ API key:
     ```bash
     GROQ_API_KEY="your_groq_api_key_here"
     ```
@@ -31,7 +31,7 @@ Honeypot simulation system using LLM agents to study attacker behavior patterns 
 
 ## Usage
 
-Run the interactive shell agent:
+Run the interactive shell:
 
 ```bash
 uv run python src/main.py
@@ -58,7 +58,7 @@ uv run python src/tester.py --analyze
 ## Project Structure
 
 - `src/`
-    - `main.py` - Agent implementation with shell simulation
+    - `main.py` - Implementation with shell simulation
     - `utils.py` - Configuration and utilities
     - `tester.py` - Data collection and analysis script
 - `datasets/` - Command and attack scenario datasets
