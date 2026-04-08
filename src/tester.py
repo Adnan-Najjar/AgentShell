@@ -10,7 +10,7 @@ from main import *
 from utils import *
 
 matplotlib.use("Agg")
-logging.getLogger("agent").setLevel(logging.CRITICAL) # Disable logging
+
 
 def generate_llm_commands(output_filename: str):
     agent = Agent("commands")
@@ -18,11 +18,7 @@ def generate_llm_commands(output_filename: str):
 
     commands = json.load(open(f"{COMMANDS}.json", "r"))
     for i, command in enumerate(commands):
-        try:
-            response = agent.chat(command)
-        except:
-            time.sleep(300)
-            response = agent.chat(command)
+        response = agent.chat(command)
         output[command] = response
         print(
             f"Command number: {i}, Command output: {response:.30}, Tokens {agent.total_tokens}"
@@ -42,15 +38,12 @@ def generate_llm_scenarios(output_filename: str):
         tactic_commands = {}
         tactic_tokens = {}
         for step, command in attack_scenarios[tactic].items():
-            response = agent.chat(command)
+            response = str(agent.chat(command))
             tactic_commands[step] = response
             tactic_tokens[step] = agent.total_tokens
-            try:
-                print(
-                    f"Attack scenario {tactic} at step: {step}, Output: {response:.30}, Tokens: {agent.total_tokens}"
-                )
-            except:
-                continue
+            print(
+                f"Attack scenario {tactic} at step: {step}, Output: {response:.30}, Tokens: {agent.total_tokens}"
+            )
         output[tactic] = tactic_commands
         output[tactic + "_tokens"] = tactic_tokens
 

@@ -1,3 +1,4 @@
+from datetime import date
 import logging
 import os
 import re
@@ -8,12 +9,19 @@ from pydantic import BaseModel
 from tools import Tools
 from utils import MODEL, SYSTEM_PROMPT
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
 logger = logging.getLogger("agent")
+logger.setLevel(logging.INFO)
+logger.handlers.clear()
+
+file_handler = logging.FileHandler(f"logs/agent_{date.today()}.log")
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(
+    logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+)
+logger.addHandler(file_handler)
 
 
 class OutputStructure(BaseModel):
@@ -152,7 +160,9 @@ class Agent:
             # Extract only flags, split combined flags
             # Example: "-la file" -> ["-l", "-a"]
             for token in tokens[1:]:
-                if token.startswith("-"):
+                if token.startswith("--"):
+                    flags.append(token)
+                elif token.startswith("-"):
                     flags.extend([f"-{c}" for c in token[1:]])
 
             parsed_commands.append(
