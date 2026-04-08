@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 
 from ollama import chat
 from pydantic import BaseModel
@@ -132,6 +133,37 @@ class Agent:
             logger.error(f"Failed to parse response: {e}")
             return ""
 
+    def parse_command(self, query: str) -> list:
+        # Split by shell operators: |, ||, &&, ;
+        parts = re.split(r"\s*(?:\|{1,2}|&&|;)\s*", query)
+        parsed_commands = []
+
+        for raw_command in parts:
+            if not raw_command.strip():
+                continue
+
+            tokens = raw_command.split()
+            if not tokens:
+                continue
+
+            cmd_name = tokens[0]
+            flags = []
+
+            # Extract only flags, split combined flags
+            # Example: "-la file" -> ["-l", "-a"]
+            for token in tokens[1:]:
+                if token.startswith("-"):
+                    flags.extend([f"-{c}" for c in token[1:]])
+
+            parsed_commands.append(
+                {
+                    "command": cmd_name,
+                    "flags": flags,
+                }
+            )
+
+        return parsed_commands
+
     def chat(self, query: str) -> str:
         logger.info(f"Query: {query}")
 
@@ -153,6 +185,8 @@ class Agent:
                 output = error_msg
                 logger.info(f"Invalid command: {command}")
             else:
+                # parsed: list = self.parse_command(query)
+                # TODO: RAG using parsed flages
                 output = self._handle_llm(query)
 
         self.shell_prompt = self._shell_prompt(self.current_state)
