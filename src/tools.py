@@ -1,7 +1,6 @@
 import sqlite3
 
 import docker
-from langchain_core.tools import StructuredTool
 
 from utils import OUTPUT_DIR
 
@@ -17,7 +16,14 @@ class Tools:
         self.client = docker.from_env()
         self._ensure_container()
 
-    # ==== HISTORY TOOL ====
+    def _ensure_container(self):
+        try:
+            self.container = self.client.containers.get(self.container_name)
+            if self.container.status != "running":
+                self.container.start()
+        except:
+            raise RuntimeError(f"Run docker {self.container_name} container first.")
+
     def _init_db(self):
         cursor = self.conn.cursor()
         cursor.execute(
@@ -71,6 +77,18 @@ class Tools:
         cursor.execute(f"UPDATE {self.id} SET deleted = 1")
         self.conn.commit()
 
+    def validate_command(self, command: str) -> tuple[bool, str]:
+        exit_code, _ = self.container.exec_run(
+            cmd=["/bin/bash", "-c", f"command -v {command}"]
+        )
+        error_msg = f"bash: {command.split()[0]}: command not found"
+        if exit_code == 0:
+            exit_code, error_msg = self.container.exec_run(
+                cmd=["/bin/bash", "-n", "-c", command]
+            )
+
+        return True if exit_code == 0 else False, error_msg
+
     def __del__(self):
         if hasattr(self, "conn"):
             self.conn.close()
@@ -78,66 +96,3 @@ class Tools:
     def __exit__(self):
         if hasattr(self, "conn"):
             self.conn.close()
-
-    # ======================
-    # ====  BASH TOOL  ====
-    def _ensure_container(self):
-        try:
-            self.container = self.client.containers.get(self.container_name)
-            if self.container.status != "running":
-                self.container.start()
-        except:
-            self.container = self.client.containers.run(
-                "ubuntu:latest",  # used ubuntu here because it has all the basic tools installed
-                name=self.container_name,
-                detach=True,
-                tty=True,
-            )
-
-    def validate_command(self, command: str) -> tuple[bool, str]:
-        # Check command avaliblity
-        exit_code, _ = self.container.exec_run(
-            cmd=["/bin/bash", "-c", f"command -v {command}"]
-        )
-        error_msg = f"bash: {command.split()[0]}: command not found"
-        if exit_code == 0:
-            # Check command correctness
-            exit_code, error_msg = self.container.exec_run(
-                cmd=["/bin/bash", "-n", "-c", command]
-            )
-
-        return True if exit_code == 0 else False, error_msg
-
-    def execute_bash(self, command: str, current_dir: str) -> str:
-        """Execute bash command with timeout."""
-        full_cmd = f"(cd {current_dir} && timeout 120s {command})"
-        exit_code, output = self.container.exec_run(cmd=["/bin/bash", "-c", full_cmd])
-
-        if exit_code == 124:
-            return "Command Timed out."
-
-        try:
-            return output.decode("utf-8") or ""
-        except UnicodeDecodeError:
-            return f"[binary output: {len(output)} bytes]"
-
-    # ======================
-
-    def get_tools(self):
-        return [
-            StructuredTool.from_function(
-                func=self.get_history,
-                description="Show command history",
-                name="get_history",
-            ),
-            StructuredTool.from_function(
-                func=self.delete_history,
-                description="Clear command history",
-                name="delete_history",
-            ),
-            StructuredTool.from_function(
-                func=self.execute_bash,
-                description="Execute bash commands",
-                name="execute_bash",
-            ),
-        ]

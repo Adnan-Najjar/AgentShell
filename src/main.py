@@ -1,20 +1,18 @@
-from langchain.agents import AgentState, create_agent
-from langchain.agents.structured_output import ToolStrategy
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.runnables import RunnableConfig
-from langchain_ollama import ChatOllama
+import logging
+import os
+
+from ollama import chat
 from pydantic import BaseModel
 
 from tools import Tools
 from utils import MODEL, SYSTEM_PROMPT
 
-
-class ShellAgentState(AgentState):
-    user: str
-    user_dir: str
-    localhost: str
-    current_dir: str
-    is_root: bool
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("agent")
 
 
 class OutputStructure(BaseModel):
@@ -28,7 +26,7 @@ class OutputStructure(BaseModel):
 
 class Agent:
     def __init__(self, thread_id: str = "thread") -> None:
-        self.config = RunnableConfig(configurable={"thread_id": thread_id})
+        logger.info(f"Initializing Agent with thread_id={thread_id}")
 
         self.tools = Tools(thread_id)
 
@@ -41,39 +39,16 @@ class Agent:
         }
         self.total_tokens = 0
 
-        self.model = ChatOllama(
-            model=MODEL,
-            temperature=0,
-            seed=42,
-        )
         self.shell_prompt = self._shell_prompt(self.current_state)
-
-        self.agent = create_agent(
-            model=self.model,
-            tools=self.tools.get_tools(),
-            system_prompt=SYSTEM_PROMPT,
-            response_format=ToolStrategy(OutputStructure),
-            state_schema=ShellAgentState,
+        logger.info(
+            f"Agent initialized. Current dir: {self.current_state['current_dir']}"
         )
-
-    def _token_counter(self, messages):
-        tokens = 0
-        for msgi in range(len(messages) - 1, 0, -1):
-            msg = messages[msgi]
-            if isinstance(msg, HumanMessage):
-                tokens += len(msg.content)
-            elif isinstance(msg, AIMessage):
-                input_tokens = int(tokens / 4)
-                last_tokens = msg.usage_metadata["total_tokens"]  # type: ignore
-                return last_tokens + input_tokens
-        return 0
 
     def _shell_prompt(self, state: dict) -> str:
         prompt = f"{state['user']}@{state['localhost']}:{state['current_dir']}{'#' if state['is_root'] else '$'} "
         return prompt.replace(state["user_dir"], "~", 1)
 
     def _format_state(self) -> str:
-        """Format current state for LLM context."""
         return f"""Current State:
 - User: {self.current_state["user"]}
 - Home: {self.current_state["user_dir"]}
@@ -81,50 +56,106 @@ class Agent:
 - Current Directory: {self.current_state["current_dir"]}
 - Is Root: {self.current_state["is_root"]}"""
 
+    # Handle history deletion and retrieval
+    def _handle_history(self, command: str) -> str:
+        parts = command.split(maxsplit=1)
+        if len(parts) > 1 and parts[1].startswith("-c"):
+            self.tools.delete_history()
+            return ""
+        return self.tools.get_history()
+
+    def _handle_cd(self, command: str) -> str:
+        parts = command.split(maxsplit=1)
+        target = parts[1].strip() if len(parts) > 1 else "~"
+
+        current = self.current_state["current_dir"]
+        user_home = self.current_state["user_dir"]
+
+        # 1. Handle special shortcuts
+        if target == "~":
+            new_path = user_home
+        elif target == "-":
+            new_path = getattr(self, "_prev_dir", user_home)
+        else:
+            # 2. Resolve Path (Handles absolute, relative, and "..")
+            # os.path.join handles the "/" vs "sub/dir" logic automatically
+            raw_path = os.path.join(current, target)
+            new_path = os.path.normpath(raw_path)
+
+        # 3. Update state
+        self._prev_dir = current
+        self.current_state["current_dir"] = new_path
+        logger.info(f"cd: {current} -> {new_path}")
+        return ""
+
+    def _handle_llm(self, query: str) -> str:
+        full_query = f"{self._format_state()}\nUser Query: {query}"
+
+        response = chat(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": full_query},
+            ],
+            format=OutputStructure.model_json_schema(),
+            options={"temperature": 0.1, "seed": 42},
+        )
+
+        self.total_tokens = (response.eval_count or 0) + (
+            response.prompt_eval_count or 0
+        )
+
+        logger.info(f"Raw JSON: {response.message.content}")
+
+        try:
+            structured_output = OutputStructure.model_validate_json(
+                response.message.content or ""
+            )
+
+            logger.info(f"State update: {structured_output.model_dump()}")
+
+            self.current_state = {
+                "user": structured_output.user,
+                "user_dir": structured_output.user_dir,
+                "localhost": structured_output.localhost,
+                "current_dir": structured_output.current_dir,
+                "is_root": structured_output.is_root,
+            }
+
+            logger.info(
+                f"Output: {structured_output.command_output[:100]}{'...' if len(structured_output.command_output) > 100 else ''}"
+            )
+
+            return structured_output.command_output
+
+        except Exception as e:
+            logger.error(f"Failed to parse response: {e}")
+            return ""
+
     def chat(self, query: str) -> str:
+        logger.info(f"Query: {query}")
+
         output = ""
-        # Add input to DB
         last_id = self.tools.set_history(query)
 
-        # Check if command exist
         command = query.split()[0]
-        valid, error_msg = self.tools.validate_command(command)
-        if not valid:
-            output = error_msg
+        if command == "cd":
+            output = self._handle_cd(query)
+        elif command == "pwd":
+            output = self.current_state["current_dir"]
+            logger.info(f"pwd: {output}")
+        elif command == "history":
+            output = self._handle_history(query)
+            logger.info(f"history: {output}")
         else:
-            # Build full query with state context
-            state_context = self._format_state()
-            full_query = f"""{state_context}
+            valid, error_msg = self.tools.validate_command(command)
+            if not valid:
+                output = error_msg
+                logger.info(f"Invalid command: {command}")
+            else:
+                output = self._handle_llm(query)
 
-User Query: {query}
-
-Respond with JSON only."""
-
-            result = self.agent.invoke(
-                {"messages": [HumanMessage(content=full_query)]},
-                self.config,
-            )
-            try:
-                structured_output = result["structured_response"]
-
-                # Update the state
-                self.current_state = {
-                    "user": structured_output.user,
-                    "user_dir": structured_output.user_dir,
-                    "localhost": structured_output.localhost,
-                    "current_dir": structured_output.current_dir,
-                    "is_root": structured_output.is_root,
-                    "command_output": structured_output.command_output,
-                }
-
-                # Update the shell prompt
-                self.shell_prompt = self._shell_prompt(self.current_state)
-                # Update the total tokens used
-                self.total_tokens = self._token_counter(result["messages"])
-
-                output = structured_output.command_output
-            except KeyError:
-                output = ""
+        self.shell_prompt = self._shell_prompt(self.current_state)
 
         self.tools.update_history(last_id, output)
 
@@ -132,11 +163,12 @@ Respond with JSON only."""
 
 
 if __name__ == "__main__":
+    logger.info("Starting Agent shell")
     agent = Agent()
     while True:
         q = input(agent.shell_prompt)
         if q != "":
             response = agent.chat(q)
-            print("Token used:", agent.total_tokens)
             if response != "":
                 print(response)
+            logger.info(f"Prompt updated: {agent.shell_prompt}")

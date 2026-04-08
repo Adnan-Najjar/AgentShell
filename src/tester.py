@@ -10,7 +10,7 @@ from main import *
 from utils import *
 
 matplotlib.use("Agg")
-
+logging.getLogger("agent").setLevel(logging.CRITICAL) # Disable logging
 
 def generate_llm_commands(output_filename: str):
     agent = Agent("commands")
