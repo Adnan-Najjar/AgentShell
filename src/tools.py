@@ -1,8 +1,11 @@
+import logging
 import sqlite3
 
 import docker
 
 from utils import OUTPUT_DIR
+
+logger = logging.getLogger("agent")
 
 
 class Tools:
@@ -88,6 +91,62 @@ class Tools:
             )
 
         return True if exit_code == 0 else False, error_msg
+
+    def _help_page(self, command: str, option: str) -> str:
+        help_cmd = f"{command} --help"
+        exit_code, page = self.container.exec_run(cmd=["/bin/bash", "-c", help_cmd])
+        if exit_code != 0:
+            return f"No help page for {command}"
+
+        logger.debug(f"RAG: Fetching --help for {command} {option}")
+
+        help_cmd = f"{help_cmd} | sed ':a;N;$!ba;s/\\n\\s*\\(\\w\\)/ \\1/g' | "
+        if option == "":
+            help_cmd += "head -n3"
+        else:
+            help_cmd += f"grep \"^\\s*{option}\""
+
+        exit_code, page = self.container.exec_run(cmd=["/bin/bash", "-c", help_cmd])
+        if exit_code == 0:
+            logger.debug(f"RAG: Found help for {command} {option}: {page[:50]}")
+            return page.decode('utf-8').strip()
+
+        logger.debug(f"RAG: No help found for {command} {option}")
+        return f"No help page for {option} option in {command} command"
+
+    def _man_page(self, command: str, option: str) -> str:
+        man_cmd = f"MANWIDTH=999 man -P cat {command}"
+        exit_code, page = self.container.exec_run(cmd=["/bin/bash", "-c", man_cmd])
+        if exit_code != 0:
+            return f"No man page for {command}"
+
+        logger.debug(f"RAG: Fetching man page for {command} {option}")
+
+        man_cmd = f"{man_cmd} | grep \"^\\s*{option}\" -A4"
+        exit_code, page = self.container.exec_run(cmd=["/bin/bash", "-c", man_cmd])
+        if exit_code == 0:
+            logger.debug(f"RAG: Found man page for {command} {option}: {page[:50]}")
+            return page.decode('utf-8').strip()
+
+        logger.debug(f"RAG: No man page found for {command} {option}")
+        return f"No man page for {option} option in {command} command"
+
+    def get_docs(self, commands: list) -> str:
+        logger.info(f"RAG: Request for {len(commands)} commands")
+
+        output = ""
+        for command in commands:
+            output += self._help_page(command["command"], "")
+            for option in command["flags"]:
+                logger.info(f"RAG: command: {command["command"]} | flags: {option}")
+                if option:
+                    output += self._help_page(command["command"], option)
+                    output += "\n"
+                    output += self._man_page(command["command"], option)
+                    output += "\n"
+
+        logger.info(f"RAG: Returned {output}")
+        return output
 
     def __del__(self):
         if hasattr(self, "conn"):

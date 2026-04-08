@@ -89,8 +89,8 @@ class Agent:
         logger.info(f"cd: {current} -> {new_path}")
         return ""
 
-    def _handle_llm(self, query: str) -> str:
-        full_query = f"{self._format_state()}\nUser Query: {query}"
+    def _handle_llm(self, query: str, docs: str) -> str:
+        full_query = f"{self._format_state()}\n{docs}\n\nUser Query: {query}"
 
         response = chat(
             model=MODEL,
@@ -185,9 +185,9 @@ class Agent:
                 output = error_msg
                 logger.info(f"Invalid command: {command}")
             else:
-                # parsed: list = self.parse_command(query)
-                # TODO: RAG using parsed flages
-                output = self._handle_llm(query)
+                parsed: list = self.parse_command(query)
+                docs = self.tools.get_docs(parsed)
+                output = self._handle_llm(query, docs)
 
         self.shell_prompt = self._shell_prompt(self.current_state)
 
