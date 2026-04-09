@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import datetime
 import logging
 import os
 import re
@@ -13,7 +13,7 @@ logger = logging.getLogger("agent")
 logger.setLevel(logging.INFO)
 logger.handlers.clear()
 
-file_handler = logging.FileHandler(f"logs/agent_{date.today()}.log")
+file_handler = logging.FileHandler(f"logs/agent_{datetime.now().strftime("%d_%H-%M")}.log")
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(
     logging.Formatter(

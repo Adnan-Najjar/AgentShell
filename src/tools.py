@@ -1,4 +1,5 @@
 import logging
+import re
 import sqlite3
 
 import docker
@@ -93,42 +94,39 @@ class Tools:
         return True if exit_code == 0 else False, error_msg
 
     def _help_page(self, command: str, option: str) -> str:
+        logger.debug(f"RAG: Fetching --help for {command} {option}")
+
         help_cmd = f"{command} --help"
         exit_code, page = self.container.exec_run(cmd=["/bin/bash", "-c", help_cmd])
         if exit_code != 0:
+            logger.debug(f"RAG: No help page found for {command} {option}")
             return f"No help page for {command}"
+        help_page = page.decode('utf-8')
 
-        logger.debug(f"RAG: Fetching --help for {command} {option}")
-
-        help_cmd = f"{help_cmd} | sed ':a;N;$!ba;s/\\n\\s*\\(\\w\\)/ \\1/g' | "
         if option == "":
-            help_cmd += "head -n3"
-        else:
-            help_cmd += f"grep \"^\\s*{option}\""
+            return "".join(help_page.splitlines()[0:4])
+        help_re = re.compile(rf"^\s*(-[a-zA-Z], )?{option}.*?^\s*(?=-)", re.MULTILINE | re.DOTALL)
+        help_page = help_re.search(help_page)
+        if help_page:
+            return help_page.group()
 
-        exit_code, page = self.container.exec_run(cmd=["/bin/bash", "-c", help_cmd])
-        if exit_code == 0:
-            logger.debug(f"RAG: Found help for {command} {option}: {page[:50]}")
-            return page.decode('utf-8').strip()
-
-        logger.debug(f"RAG: No help found for {command} {option}")
         return f"No help page for {option} option in {command} command"
 
     def _man_page(self, command: str, option: str) -> str:
+        logger.debug(f"RAG: Fetching man page for {command} {option}")
+
         man_cmd = f"MANWIDTH=999 man -P cat {command}"
         exit_code, page = self.container.exec_run(cmd=["/bin/bash", "-c", man_cmd])
         if exit_code != 0:
+            logger.debug(f"RAG: No man page found for {command} {option}")
             return f"No man page for {command}"
+        man_page = page.decode('utf-8')
 
-        logger.debug(f"RAG: Fetching man page for {command} {option}")
+        man_re = re.compile(rf"^\s*(-[a-zA-Z], )?{option}.*?^\s*(?=-)", re.MULTILINE | re.DOTALL)
+        man_page = man_re.search(man_page)
+        if man_page:
+            return man_page.group()
 
-        man_cmd = f"{man_cmd} | grep \"^\\s*{option}\" -A4"
-        exit_code, page = self.container.exec_run(cmd=["/bin/bash", "-c", man_cmd])
-        if exit_code == 0:
-            logger.debug(f"RAG: Found man page for {command} {option}: {page[:50]}")
-            return page.decode('utf-8').strip()
-
-        logger.debug(f"RAG: No man page found for {command} {option}")
         return f"No man page for {option} option in {command} command"
 
     def get_docs(self, commands: list) -> str:
