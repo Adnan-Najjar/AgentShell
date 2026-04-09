@@ -101,11 +101,13 @@ class Tools:
         if exit_code != 0:
             logger.debug(f"RAG: No help page found for {command} {option}")
             return f"No help page for {command}"
-        help_page = page.decode('utf-8')
+        help_page = page.decode("utf-8")
 
         if option == "":
             return "".join(help_page.splitlines()[0:4])
-        help_re = re.compile(rf"^\s*(-[a-zA-Z], )?{option}.*?^\s*(?=-)", re.MULTILINE | re.DOTALL)
+        help_re = re.compile(
+            rf"^\s*(-[a-zA-Z], )?{option}.*?^\s*(?=-)", re.MULTILINE | re.DOTALL
+        )
         help_page = help_re.search(help_page)
         if help_page:
             return help_page.group()
@@ -120,9 +122,11 @@ class Tools:
         if exit_code != 0:
             logger.debug(f"RAG: No man page found for {command} {option}")
             return f"No man page for {command}"
-        man_page = page.decode('utf-8')
+        man_page = page.decode("utf-8")
 
-        man_re = re.compile(rf"^\s*(-[a-zA-Z], )?{option}.*?^\s*(?=-)", re.MULTILINE | re.DOTALL)
+        man_re = re.compile(
+            rf"^\s*(-[a-zA-Z], )?{option}.*?^\s*(?=-)", re.MULTILINE | re.DOTALL
+        )
         man_page = man_re.search(man_page)
         if man_page:
             return man_page.group()

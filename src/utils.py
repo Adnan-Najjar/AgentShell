@@ -8,6 +8,9 @@ import paramiko
 MODEL = "llama3.1:latest"
 MODEL_NAME = "llama3.1"
 
+BASE_URL = "http://localhost:11434/v1"
+API_KEY = os.getenv("API_KEY", "dummy_key")
+
 SYSTEM_PROMPT = """You are a Debian 7.11 server shell running in a honeypot. Simulate a real shell as closely as possible.
 
 CONTEXT:

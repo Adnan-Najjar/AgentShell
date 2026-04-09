@@ -3,17 +3,19 @@ import logging
 import os
 import re
 
-from ollama import chat
+from openai import OpenAI
 from pydantic import BaseModel
 
 from tools import Tools
-from utils import MODEL, SYSTEM_PROMPT
+from utils import MODEL, BASE_URL, API_KEY, SYSTEM_PROMPT
 
 logger = logging.getLogger("agent")
 logger.setLevel(logging.INFO)
 logger.handlers.clear()
 
-file_handler = logging.FileHandler(f"logs/agent_{datetime.now().strftime("%d_%H-%M")}.log")
+file_handler = logging.FileHandler(
+    f"logs/agent_{datetime.now().strftime('%d_%H-%M')}.log"
+)
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(
     logging.Formatter(
@@ -100,25 +102,25 @@ class Agent:
     def _handle_llm(self, query: str, docs: str) -> str:
         full_query = f"{self._format_state()}\n{docs}\n\nUser Query: {query}"
 
-        response = chat(
+        client = OpenAI(base_url=BASE_URL, api_key=API_KEY)
+
+        response = client.chat.completions.create(
             model=MODEL,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": full_query},
             ],
-            format=OutputStructure.model_json_schema(),
-            options={"temperature": 0.1, "seed": 42},
+            temperature=0.1,
+            response_format={"type": "json_object"},
         )
 
-        self.total_tokens = (response.eval_count or 0) + (
-            response.prompt_eval_count or 0
-        )
+        self.total_tokens = response.usage.total_tokens if response.usage else 0
 
-        logger.info(f"Raw JSON: {response.message.content}")
+        logger.info(f"Raw JSON: {response.choices[0].message.content}")
 
         try:
             structured_output = OutputStructure.model_validate_json(
-                response.message.content or ""
+                response.choices[0].message.content or ""
             )
 
             logger.info(f"State update: {structured_output.model_dump()}")
