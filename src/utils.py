@@ -6,12 +6,23 @@ import time
 import paramiko
 
 MODEL = "llama3.1:latest"
-MODEL_NAME = "llama3.1"
+MODEL_NAME = "llama3_1"
+
+MODEL_CMP = "gpt-4o"
 
 BASE_URL = "http://localhost:11434/v1"
 API_KEY = os.getenv("API_KEY", "dummy_key")
 
-SYSTEM_PROMPT = """You are a Debian 7.11 server shell running in a honeypot. Simulate a real shell as closely as possible.
+SYSTEM_PROMPT = """You are a Ubuntu 24.04 LTS server shell running.
+
+ENVIRONMENT SPECIFICS (you MUST use these exact values):
+- Hostname: ubuntu
+- Network interface: enp1s0 (NOT eth0)
+- IP address: 192.168.122.254 (NOT 10.x or random IPs)
+- Default gateway: 192.168.122.1
+- OS: Linux ubuntu 5.15.0-46-generic #49-Ubuntu SMP
+- User: user (home: /home/user)
+- Shell: /bin/bash
 
 CONTEXT:
 - Current shell state is provided in each user message
@@ -20,33 +31,19 @@ CONTEXT:
 - If your response is not valid parseable JSON, it will fail
 
 RESPONSE FORMAT (exactly this - one line, no newlines, no whitespace except between key-value pairs):
-{"user":"username","user_dir":"/home/path","localhost":"hostname","current_dir":"/current/path","is_root":true,"command_output":"output or error message"}
-
-RULES:
-1. user: current username (root, admin, user, www-data, etc.)
-2. user_dir: home directory path (e.g., /root, /home/admin, /var/www)
-3. localhost: hostname from context (e.g., svr04, web01, localhost)
-4. current_dir: MUST use the current_dir from the context provided - never guess
-5. is_root: true ONLY if user is exactly "root", false for all others
-6. commands given ALWAYS exist and you should respond to them
-7. command_output: 
-   - Success: exact output the real command would produce
-   - Command not found: "bash: commandname: command not found"
-   - File not found: "No such file or directory"
-   - Permission denied: "Permission denied"
-   - Syntax error: "bash: syntax error near unexpected token 'token'"
-   - Empty output: use "" (empty string, not null, not absent)
+{"user":"username","user_dir":"/home/path","localhost":"hostname","current_dir":"/current/path","is_root":true,"command_output":"output"}
 
 IMPORTANT:
+- Use exact environment values listed above
+- NEVER fake IP addresses (must be 192.168.122.x)
+- NEVER fake HTTP responses (curl/wget show real HTML)
+- Never generate fake progress bars
 - Always respond with COMPLETE valid JSON on a single line
-- Never break character - complete your JSON properly
-- Never include the shell prompt in output
-- Never add commentary - only JSON"""
+"""
 
-DEBIAN_HOST = "192.168.122.81"
-DEBIAN_PORT = "2220"
-
-COWRIE_PORT = "2222"
+UBUNTU_HOST = "172.18.0.20"
+UBUNTU_PORT = "2220"
+COWRIE_PORT = "2221"
 
 TACTICS = [
     "system_reconnaissance",
@@ -56,7 +53,7 @@ TACTICS = [
     "data_obfuscation_ransomware",
 ]
 
-METHODS = ["cowrie", f"{MODEL_NAME}"]
+METHODS = [MODEL_NAME, MODEL_CMP]
 COLORS = ["yellow", "green", "purple"]
 
 COMMANDS = "datasets/commands"
@@ -65,7 +62,7 @@ SCENARIOS = "datasets/scenarios"
 LLM_COMMANDS = f"{COMMANDS}/{MODEL_NAME}.json"
 LLM_SCENARIOS = f"{SCENARIOS}/{MODEL_NAME}.json"
 
-OUTPUT_DIR = f"output/{MODEL_NAME}"
+OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 BAD_OUTPUTS = ["bad", "command not found", "No such file"]
@@ -77,8 +74,8 @@ def run_cmd_ssh(cmd: str, port: str, hostname="localhost") -> str:
     Uses invoke_shell instead of exec_command to handle interactive commands
     Times out after 10 mins (to make sure it doesnt cut off any commands)
     """
-    username = "root"
-    password = "password"
+    username = "user"
+    password = "user"
     ansi_escape = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
     try:

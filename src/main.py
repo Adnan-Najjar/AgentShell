@@ -6,8 +6,8 @@ import re
 from openai import OpenAI
 from pydantic import BaseModel
 
+from utils import MODEL, MODEL_NAME, BASE_URL, API_KEY, SYSTEM_PROMPT
 from tools import Tools
-from utils import MODEL, BASE_URL, API_KEY, SYSTEM_PROMPT
 
 logger = logging.getLogger("agent")
 logger.setLevel(logging.INFO)
@@ -36,17 +36,18 @@ class OutputStructure(BaseModel):
 
 
 class Agent:
-    def __init__(self, thread_id: str = "thread") -> None:
-        logger.info(f"Initializing Agent with thread_id={thread_id}")
+    def __init__(self, model: str = MODEL_NAME) -> None:
+        logger.info(f"Initializing Agent with {model}")
 
-        self.tools = Tools(thread_id)
+        self.tools = Tools(model)
+        self.conversation_history: list[dict] = []
 
         self.current_state = {
-            "user": "root",
-            "user_dir": "/root",
-            "localhost": "svr04",
-            "current_dir": "/root",
-            "is_root": True,
+            "user": "user",
+            "user_dir": "/home/user",
+            "localhost": "ubuntu",
+            "current_dir": "/home/user",
+            "is_root": False,
         }
         self.total_tokens = 0
 
@@ -99,8 +100,20 @@ class Agent:
         logger.info(f"cd: {current} -> {new_path}")
         return ""
 
+    def _format_history(self) -> str:
+        if not self.conversation_history:
+            return "No history yet."
+
+        history_str = "Recent History (last 5 commands):\n"
+        for i, entry in enumerate(self.conversation_history, 1):
+            history_str += f"{i}. > {entry['query']}\n"
+            history_str += f"output> {entry['output']}\n"
+        return history_str
+
     def _handle_llm(self, query: str, docs: str) -> str:
-        full_query = f"{self._format_state()}\n{docs}\n\nUser Query: {query}"
+        history_context = self._format_history()
+        logger.info(f"History context: {history_context}...")
+        full_query = f"{self._format_state()}\n{history_context}\n\n{docs}\n\nUser Query: {query}"
 
         client = OpenAI(base_url=BASE_URL, api_key=API_KEY)
 
@@ -110,7 +123,7 @@ class Agent:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": full_query},
             ],
-            temperature=0.1,
+            temperature=0.5,
             response_format={"type": "json_object"},
         )
 
@@ -188,6 +201,12 @@ class Agent:
         elif command == "pwd":
             output = self.current_state["current_dir"]
             logger.info(f"pwd: {output}")
+        elif command == "whoami":
+            output = self.current_state["user"]
+            logger.info(f"whoami: {output}")
+        elif command == "hostname":
+            output = self.current_state["localhost"]
+            logger.info(f"localhost: {output}")
         elif command == "history":
             output = self._handle_history(query)
             logger.info(f"history: {output}")
@@ -204,6 +223,10 @@ class Agent:
         self.shell_prompt = self._shell_prompt(self.current_state)
 
         self.tools.update_history(last_id, output)
+
+        self.conversation_history.append({"query": query, "output": output})
+        if len(self.conversation_history) > 5:
+            self.conversation_history = self.conversation_history[-5:]
 
         return output
 

@@ -1,0 +1,32 @@
+services:
+  user:
+    container_name: user
+    hostname: ubuntu
+    ports:
+      - "2220:2220"
+    build: docker/
+    networks:
+      honeypot-net:
+        ipv4_address: 172.18.0.20
+    restart: unless-stopped
+
+  attacker-server:
+    container_name: attacker-server
+    hostname: attacker
+    ports:
+      - "2221:2221"
+      - "8080"
+      - "15300"
+    build: docker/attacker/
+    networks:
+      honeypot-net:
+        ipv4_address: 172.18.0.21
+    restart: unless-stopped
+
+networks:
+  honeypot-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.18.0.0/24
+          gateway: 172.18.0.1

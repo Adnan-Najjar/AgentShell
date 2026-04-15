@@ -16,7 +16,7 @@ class Tools:
         self.conn = sqlite3.connect(f"{OUTPUT_DIR}/history.db", check_same_thread=False)
         self._init_db()
 
-        self.container_name = "debian-sandbox"
+        self.container_name = "user"
         self.client = docker.from_env()
         self._ensure_container()
 
@@ -100,7 +100,7 @@ class Tools:
         exit_code, page = self.container.exec_run(cmd=["/bin/bash", "-c", help_cmd])
         if exit_code != 0:
             logger.debug(f"RAG: No help page found for {command} {option}")
-            return f"No help page for {command}"
+            return ""
         help_page = page.decode("utf-8")
 
         if option == "":
@@ -112,7 +112,7 @@ class Tools:
         if help_page:
             return help_page.group()
 
-        return f"No help page for {option} option in {command} command"
+        return ""
 
     def _man_page(self, command: str, option: str) -> str:
         logger.debug(f"RAG: Fetching man page for {command} {option}")
@@ -121,7 +121,7 @@ class Tools:
         exit_code, page = self.container.exec_run(cmd=["/bin/bash", "-c", man_cmd])
         if exit_code != 0:
             logger.debug(f"RAG: No man page found for {command} {option}")
-            return f"No man page for {command}"
+            return ""
         man_page = page.decode("utf-8")
 
         man_re = re.compile(
@@ -131,7 +131,7 @@ class Tools:
         if man_page:
             return man_page.group()
 
-        return f"No man page for {option} option in {command} command"
+        return ""
 
     def get_docs(self, commands: list) -> str:
         logger.info(f"RAG: Request for {len(commands)} commands")

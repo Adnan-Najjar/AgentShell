@@ -13,7 +13,7 @@ matplotlib.use("Agg")
 
 
 def generate_llm_commands(output_filename: str):
-    agent = Agent("commands")
+    agent = Agent(MODEL_NAME+"_commands")
     output = {}
 
     commands = json.load(open(f"{COMMANDS}.json", "r"))
@@ -34,7 +34,7 @@ def generate_llm_scenarios(output_filename: str):
 
     attack_scenarios: dict = json.load(open("datasets/attack_scenarios.json", "r"))
     for tactic in TACTICS:
-        agent = Agent(tactic)
+        agent = Agent(MODEL_NAME+"_"+tactic)
         tactic_commands = {}
         tactic_tokens = {}
         for step, command in attack_scenarios[tactic].items():
@@ -85,20 +85,6 @@ if __name__ == "__main__":
     parser.add_argument("--analyze", action="store_true", help="Run analysis")
 
     parser.add_argument(
-        "--cowrie",
-        action="store_true",
-        help="Collect all Cowrie data (commands + attack scenarios)",
-    )
-    parser.add_argument(
-        "--cowrie-commands", action="store_true", help="Collect Cowrie commands data"
-    )
-    parser.add_argument(
-        "--cowrie-scenarios",
-        action="store_true",
-        help="Collect Cowrie attack scenarios data",
-    )
-
-    parser.add_argument(
         "--control",
         action="store_true",
         help="Collect all control data (commands + attack scenarios)",
@@ -128,25 +114,14 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # Handle specific data collection options
-    if args.cowrie_commands or args.cowrie:
-        print("Collecting Cowrie commands data...")
-        collect_commands(f"{COMMANDS}/cowrie.json", COWRIE_PORT)
-        print("Cowrie commands data collection completed.")
-
-    if args.cowrie_scenarios or args.cowrie:
-        print("Collecting Cowrie attack scenarios data...")
-        collect_attack_scenarios(f"{SCENARIOS}/cowrie.json", COWRIE_PORT)
-        print("Cowrie attack scenarios data collection completed.")
-
     if args.control_commands or args.control:
         print("Collecting control commands data...")
-        collect_commands(f"{COMMANDS}/control.json", DEBIAN_PORT, DEBIAN_HOST)
+        collect_commands(f"{COMMANDS}/control.json", UBUNTU_PORT, UBUNTU_HOST)
         print("control commands data collection completed.")
 
     if args.control_scenarios or args.control:
         print("Collecting control attack scenarios data...")
-        collect_attack_scenarios(f"{SCENARIOS}/control.json", DEBIAN_PORT)
+        collect_attack_scenarios(f"{SCENARIOS}/control.json", UBUNTU_PORT, UBUNTU_HOST)
         print("control attack scenarios data collection completed.")
 
     if args.llm_commands or args.llm:
@@ -164,12 +139,12 @@ if __name__ == "__main__":
         commands = json.load(open(f"{COMMANDS}.json", "r"))
         llm = json.load(open(LLM_COMMANDS, "r"))
         control = json.load(open(f"{COMMANDS}/control.json", "r"))
-        cowrie = json.load(open(f"{COMMANDS}/cowrie.json", "r"))
+        model_cmp = json.load(open(f"{COMMANDS}/{MODEL_CMP}.json", "r"))
 
         # Calculate Levenshtein Ratio
-        cowrie_system = []
-        cowrie_filesystem = []
-        cowrie_connectivity = []
+        model_cmp_system = []
+        model_cmp_filesystem = []
+        model_cmp_connectivity = []
 
         llm_system = []
         llm_filesystem = []
@@ -180,35 +155,39 @@ if __name__ == "__main__":
             if not llm[command]:
                 continue
 
-            cowrie_lev = ratio(cowrie[command], control[command])
+            model_cmp_lev = ratio(model_cmp[command], control[command])
             llm_lev = ratio(llm[command], control[command])
 
             if command_type == "filesystem":
-                cowrie_filesystem.append(cowrie_lev)
+                model_cmp_filesystem.append(model_cmp_lev)
                 llm_filesystem.append(llm_lev)
             elif command_type == "system":
-                cowrie_system.append(cowrie_lev)
+                model_cmp_system.append(model_cmp_lev)
                 llm_system.append(llm_lev)
             elif command_type == "connectivity":
-                cowrie_connectivity.append(cowrie_lev)
+                model_cmp_connectivity.append(model_cmp_lev)
                 llm_connectivity.append(llm_lev)
 
         plt.figure(figsize=(10, 8))
         plt.scatter(
-            cowrie_filesystem, llm_filesystem, c="purple", label="Filesystem", alpha=0.7
+            model_cmp_filesystem,
+            llm_filesystem,
+            c="purple",
+            label="Filesystem",
+            alpha=0.7,
         )
-        plt.scatter(cowrie_system, llm_system, c="orange", label="System", alpha=0.7)
+        plt.scatter(model_cmp_system, llm_system, c="orange", label="System", alpha=0.7)
         plt.scatter(
-            cowrie_connectivity,
+            model_cmp_connectivity,
             llm_connectivity,
             c="green",
             label="Connectivity",
             alpha=0.7,
         )
 
-        plt.xlabel("Cowrie L-Ratio")
+        plt.xlabel(f"{MODEL_CMP} L-Ratio")
         plt.ylabel("LLM L-Ratio")
-        plt.title("Command Similarity: Cowrie vs LLM")
+        plt.title(f"Command Similarity: {MODEL_CMP} vs LLM")
         plt.legend()
         plt.grid(True, alpha=0.3)
         plt.plot(
@@ -222,8 +201,11 @@ if __name__ == "__main__":
         def average(lst):
             return sum(lst) / len(lst) if lst else 0
 
-        cowrie_avg = average(cowrie_system + cowrie_filesystem + cowrie_connectivity)
+        model_cmp_avg = average(
+            model_cmp_system + model_cmp_filesystem + model_cmp_connectivity
+        )
         llm_avg = average(llm_system + llm_filesystem + llm_connectivity)
+        cmp_tokens = model_cmp.get("tokens_used", 0)
 
         # Create scenario bar chart
         steps_data = {method: {tactic: 0 for tactic in TACTICS} for method in METHODS}
@@ -250,14 +232,13 @@ if __name__ == "__main__":
 
 ## Results Table
 
-| L-ratio | Cowrie | LLM |
-|---------|--------|-----|
-| Average | {cowrie_avg:.3f} | {llm_avg:.3f} |
-| System Average | {average(cowrie_system):.3f} | {average(llm_system):.3f} |
-| Filesystem Average | {average(cowrie_filesystem):.3f} | {average(llm_filesystem):.3f} |
-| Connectivity Average | {average(cowrie_connectivity):.3f} | {average(llm_connectivity):.3f} |
-
-- Tokens used: {llm["tokens_used"]}
+| L-ratio | {MODEL_CMP} | {MODEL_NAME} |
+|---------|-----------|-----------|
+| Average | {model_cmp_avg:.3f} | {llm_avg:.3f} |
+| System Average | {average(model_cmp_system):.3f} | {average(llm_system):.3f} |
+| Filesystem Average | {average(model_cmp_filesystem):.3f} | {average(llm_filesystem):.3f} |
+| Connectivity Average | {average(model_cmp_connectivity):.3f} | {average(llm_connectivity):.3f} |
+| Total Tokens | {cmp_tokens} | {llm["tokens_used"]} |
 
 ## Bar Chart
 
@@ -268,15 +249,18 @@ if __name__ == "__main__":
         """
         steps = range(1, 10)
 
-        attack_scenarios = json.load(open(f"{SCENARIOS}/{MODEL_NAME}.json", "r"))
+        llm_scenarios = json.load(open(f"{SCENARIOS}/{MODEL_NAME}.json", "r"))
+        cmp_scenarios = json.load(open(f"{SCENARIOS}/{MODEL_CMP}.json", "r"))
         for tactic in TACTICS:
             _, ax = plt.subplots(figsize=(6, 3))
-            tokens = []
+            llm_tokens = []
+            cmp_tokens = []
             for step in steps:
-                step_token = attack_scenarios[tactic + "_tokens"][f"step {step}"]
-                tokens.append(step_token)
+                llm_tokens.append(llm_scenarios[tactic + "_tokens"][f"step {step}"])
+                cmp_tokens.append(cmp_scenarios[tactic + "_tokens"][f"step {step}"])
 
-            ax.plot(steps, tokens, label="LLM")
+            ax.plot(steps, cmp_tokens, label=MODEL_CMP, color="blue")
+            ax.plot(steps, llm_tokens, label=MODEL_NAME, color="red")
             ax.set_ylim(0, 7000)
             ax.set_title(tactic)
             ax.set_xlabel("Step")
@@ -289,7 +273,7 @@ if __name__ == "__main__":
             )
 
         for tactic in TACTICS:
-            markdown_content += f"\n### {tactic.capitalize().replace("_"," ")}\n![{tactic} Line Chart](line_chart_{tactic}.png)\n\n"
+            markdown_content += f"\n### {tactic.capitalize().replace('_', ' ')}\n![{tactic} Line Chart](line_chart_{tactic}.png)\n\n"
 
         # Save to results.md
         with open(f"{OUTPUT_DIR}/results.md", "w") as f:
