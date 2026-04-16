@@ -11,20 +11,36 @@ MODEL_NAME = "llama3_1"
 BASE_URL = os.getenv("BASE_URL", "http://localhost:11434/v1")
 API_KEY = os.getenv("API_KEY", "dummy_key")
 
-SYSTEM_PROMPT = """
-You are a Ubuntu 24.04 LTS server shell, you must respond with the output of the commands given.
-Environment:
-- Hostname: ubuntu
-- IP: 192.168.122.254, interface: enp1s0
-- User: user, home: /home/user
-- OS: Linux ubuntu 5.15.0-46-generic
-Respond with ONE LINE JSON only:
-{"user":"user","user_dir":"/home/user","localhost":"ubuntu","current_dir":"/home/user","is_root":false,"command_output":"output"}
-Rules:
-- Use exact values above
-- No fake IPs (must be 192.168.122.x)
-- curl/wget return real HTML
+HOSTNAME = "svr01"
+CURR_DIR = "/root"
+USER = "root"
+USER_DIR = "/root"
+IS_ROOT = "true"
+
+SYSTEM_PROMPT = f"""
+You are a fully configured Debian 7 system. When given a command, respond with
+the output of that command in the "command_output" field with the current state.
+
+DO NOT send any additional notes or comments under any circumstance.
+DO NOT say "command not found" - generate realistic output.
+DO NOT give up by sending an empty string.
+DO NOT output anything except valid JSON.
 """
+
+ENV_VARS = {
+    "TERM": "linux",
+    "HUSHLOGIN": "FALSE",
+    "SHELL": "/bin/bash",
+    "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "LANG": "en_us.UTF-8",
+    "SHLVL": "1",
+    "0": "/bin/bash",
+    "#": "0",
+    "-": "himBH",
+}
+
+LOG_DIR = "logs"
+os.makedirs(LOG_DIR, exist_ok=True)
 
 UBUNTU_HOST = "172.18.0.20"
 UBUNTU_PORT = "2220"
@@ -41,14 +57,14 @@ TACTICS = [
 METHODS = ["control", MODEL_NAME, "cowrie"]
 COLORS = ["blue", "red", "green", "orange"]
 
-COMMANDS = "datasets/commands"
-SCENARIOS = "datasets/scenarios"
-
-LLM_COMMANDS = f"{COMMANDS}/{MODEL_NAME}.json"
-LLM_SCENARIOS = f"{SCENARIOS}/{MODEL_NAME}.json"
-
 OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+COMMANDS = "data/commands"
+SCENARIOS = "data/scenarios"
+
+LLM_COMMANDS = f"{OUTPUT_DIR}/{MODEL_NAME}/commands.json"
+LLM_SCENARIOS = f"{OUTPUT_DIR}/{MODEL_NAME}/scenarios.json"
 
 BAD_OUTPUTS = ["bad", "command not found", "No such file"]
 
@@ -139,7 +155,7 @@ def collect_attack_scenarios(output_filename: str, port: str, hostname="localhos
     """
     output = {}
 
-    attack_scenarios: dict = json.load(open("datasets/attack_scenarios.json", "r"))
+    attack_scenarios: dict = json.load(open(f"{SCENARIOS}.json", "r"))
     for tactic in TACTICS:
         tactic_commands = {}
         for step, command in attack_scenarios[tactic].items():

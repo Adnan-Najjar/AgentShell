@@ -6,7 +6,18 @@ import re
 from openai import OpenAI
 from pydantic import BaseModel
 
-from utils import MODEL, MODEL_NAME, BASE_URL, API_KEY, SYSTEM_PROMPT
+from utils import (
+    MODEL,
+    MODEL_NAME,
+    BASE_URL,
+    API_KEY,
+    SYSTEM_PROMPT,
+    HOSTNAME,
+    USER,
+    USER_DIR,
+    CURR_DIR,
+    LOG_DIR
+)
 from tools import Tools
 
 logger = logging.getLogger("agent")
@@ -14,7 +25,7 @@ logger.setLevel(logging.INFO)
 logger.handlers.clear()
 
 file_handler = logging.FileHandler(
-    f"logs/agent_{datetime.now().strftime('%d_%H-%M')}.log"
+    f"{LOG_DIR}/agent_{datetime.now().strftime('%d_%H-%M')}.log"
 )
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(
@@ -28,9 +39,9 @@ logger.addHandler(file_handler)
 
 class OutputStructure(BaseModel):
     user: str
-    user_dir: str
-    localhost: str
-    current_dir: str
+    home: str
+    hostname: str
+    pwd: str
     is_root: bool
     command_output: str
 
@@ -40,82 +51,43 @@ class Agent:
         logger.info(f"Initializing Agent with {model}")
 
         self.tools = Tools(model)
-        self.conversation_history: list[dict] = []
 
         self.current_state = {
-            "user": "user",
-            "user_dir": "/home/user",
-            "localhost": "ubuntu",
-            "current_dir": "/home/user",
-            "is_root": False,
+            "HOSTNAME": HOSTNAME,
+            "USER": USER,
+            "HOME": USER_DIR,
+            "LOGNAME": USER,
+            "PWD": CURR_DIR,
+            "_": "/bin/bash",  # args of last command
+            "?": "0",  # last command status
+            "IS_ROOT": False,
         }
         self.total_tokens = 0
 
         self.shell_prompt = self._shell_prompt(self.current_state)
-        logger.info(
-            f"Agent initialized. Current dir: {self.current_state['current_dir']}"
-        )
+        logger.info(f"Agent initialized. Current dir: {self.current_state['PWD']}")
 
     def _shell_prompt(self, state: dict) -> str:
-        prompt = f"{state['user']}@{state['localhost']}:{state['current_dir']}{'#' if state['is_root'] else '$'} "
-        return prompt.replace(state["user_dir"], "~", 1)
+        prompt = f"{state['USER']}@{state['HOSTNAME']}:{state['PWD']}{'#' if state['IS_ROOT'] else '$'} "
+        return prompt.replace(state["HOME"], "~", 1)
 
     def _format_state(self) -> str:
-        return f"""Current State:
-- User: {self.current_state["user"]}
-- Home: {self.current_state["user_dir"]}
-- Hostname: {self.current_state["localhost"]}
-- Current Directory: {self.current_state["current_dir"]}
-- Is Root: {self.current_state["is_root"]}"""
-
-    # Handle history deletion and retrieval
-    def _handle_history(self, command: str) -> str:
-        parts = command.split(maxsplit=1)
-        if len(parts) > 1 and parts[1].startswith("-c"):
-            self.tools.delete_history()
-            return ""
-        return self.tools.get_history()
-
-    def _handle_cd(self, command: str) -> str:
-        parts = command.split(maxsplit=1)
-        target = parts[1].strip() if len(parts) > 1 else "~"
-
-        current = self.current_state["current_dir"]
-        user_home = self.current_state["user_dir"]
-
-        # 1. Handle special shortcuts
-        if target == "~":
-            new_path = user_home
-        elif target == "-":
-            new_path = getattr(self, "_prev_dir", user_home)
-        else:
-            # 2. Resolve Path (Handles absolute, relative, and "..")
-            # os.path.join handles the "/" vs "sub/dir" logic automatically
-            raw_path = os.path.join(current, target)
-            new_path = os.path.normpath(raw_path)
-
-        # 3. Update state
-        self._prev_dir = current
-        self.current_state["current_dir"] = new_path
-        logger.info(f"cd: {current} -> {new_path}")
-        return ""
-
-    def _format_history(self) -> str:
-        if not self.conversation_history:
-            return "No history yet."
-
-        history_str = "Recent History (last 5 commands):\n"
-        for i, entry in enumerate(self.conversation_history, 1):
-            history_str += f"{i}. > {entry['query']}\n"
-            history_str += f"output> {entry['output']}\n"
-        return history_str
+        return f"""
+Current state or environment variables in JSON:
+{{
+"user": "{self.current_state["USER"]}",
+"home": "{self.current_state["HOME"]}",
+"hostname": "{self.current_state["HOSTNAME"]}",
+"pwd": "{self.current_state["PWD"]}",
+"is_root": "{self.current_state["IS_ROOT"]}",
+"command_output": "<your_output_here>"
+}}
+"""
 
     def _handle_llm(self, query: str, docs: str) -> str:
-        history_context = self._format_history()
-        logger.info(f"History context: {history_context}...")
-        full_query = f"{self._format_state()}\n{history_context}\n\n{docs}\n\nUser Query: {query}"
+        full_query = f"{self._format_state()}\n\n{docs}\n\nUser Query: {query}"
 
-        client = OpenAI(base_url=BASE_URL, api_key=API_KEY)
+        client = OpenAI(base_url=BASE_URL, api_key=API_KEY, timeout=None)
 
         response = client.chat.completions.create(
             model=MODEL,
@@ -123,7 +95,7 @@ class Agent:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": full_query},
             ],
-            temperature=0.5,
+            temperature=0.1,
             response_format={"type": "json_object"},
         )
 
@@ -139,11 +111,11 @@ class Agent:
             logger.info(f"State update: {structured_output.model_dump()}")
 
             self.current_state = {
-                "user": structured_output.user,
-                "user_dir": structured_output.user_dir,
-                "localhost": structured_output.localhost,
-                "current_dir": structured_output.current_dir,
-                "is_root": structured_output.is_root,
+                "USER": structured_output.user,
+                "HOME": structured_output.home,
+                "HOSTNAME": structured_output.hostname,
+                "PWD": structured_output.pwd,
+                "IS_ROOT": structured_output.is_root,
             }
 
             logger.info(
@@ -195,20 +167,31 @@ class Agent:
         output = ""
         last_id = self.tools.set_history(query)
 
-        command = query.split()[0]
+        prompt = self.tools.handle_env_vars(query, self.current_state)
+
+        parts = prompt.split(maxsplit=1)
+        self.current_state["_"] = parts[1] if len(parts) > 1 else parts[0]
+
+        command = parts[0]
         if command == "cd":
-            output = self._handle_cd(query)
+            output = self.tools.handle_cd(prompt, self.current_state)
+        elif command == "export":
+            output = self.tools.handle_export(prompt, self.current_state)
+        elif command == "env":
+            output = self.tools.handle_env(prompt, self.current_state)
+        elif command == "apt" or command == "apt-get":
+            output = self.tools.handle_apt(prompt)
         elif command == "pwd":
-            output = self.current_state["current_dir"]
+            output = self.current_state["PWD"]
             logger.info(f"pwd: {output}")
         elif command == "whoami":
-            output = self.current_state["user"]
+            output = self.current_state["USER"]
             logger.info(f"whoami: {output}")
         elif command == "hostname":
-            output = self.current_state["localhost"]
+            output = self.current_state["HOSTNAME"]
             logger.info(f"localhost: {output}")
         elif command == "history":
-            output = self._handle_history(query)
+            output = self.tools.handle_history(prompt)
             logger.info(f"history: {output}")
         else:
             valid, error_msg = self.tools.validate_command(command)
@@ -218,15 +201,11 @@ class Agent:
             else:
                 parsed: list = self.parse_command(query)
                 docs = self.tools.get_docs(parsed)
-                output = self._handle_llm(query, docs)
+                output = self._handle_llm(prompt, docs)
 
         self.shell_prompt = self._shell_prompt(self.current_state)
 
         self.tools.update_history(last_id, output)
-
-        self.conversation_history.append({"query": query, "output": output})
-        if len(self.conversation_history) > 5:
-            self.conversation_history = self.conversation_history[-5:]
 
         return output
 

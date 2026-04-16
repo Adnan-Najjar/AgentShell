@@ -2,6 +2,7 @@ FROM ubuntu:latest
 
 WORKDIR /app
 
+RUN yes | unminimize
 RUN apt-get update && apt-get install -y \
     bash coreutils findutils util-linux file openssh-server \
     grep sed gawk net-tools iproute2 iputils-ping traceroute \
@@ -20,6 +21,6 @@ RUN uv sync --frozen --no-dev;
 
 RUN mkdir output logs;
 COPY src/ ./src/
-COPY datasets/ ./datasets/
+COPY data/ ./data/
 
 CMD ["tail", "-f", "/dev/null"]

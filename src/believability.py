@@ -14,8 +14,12 @@ from typing import List, Optional
 import matplotlib
 import matplotlib.pyplot as plt
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_RULES = os.path.join(SCRIPT_DIR, "..", "datasets", "scenarios_rules.json")
+LOG_DIR = "logs"
+os.makedirs(LOG_DIR, exist_ok=True)
+
+DEFAULT_RULES = "data/scenarios_rules.json"
+DEFAULT_COMMANDS_RULES = "data/commands_rules.json"
+DEFAULT_COMMANDS_CATEGORIES = "data/commands.json"
 
 matplotlib.use("Agg")
 
@@ -24,7 +28,7 @@ logger.setLevel(logging.INFO)
 logger.handlers.clear()
 
 log_handler = logging.FileHandler(
-    f"logs/test_{datetime.now().strftime('%d_%H-%M')}.log"
+    f"{LOG_DIR}/test_{datetime.now().strftime('%d_%H-%M')}.log"
 )
 log_handler.setLevel(logging.INFO)
 log_handler.setFormatter(
@@ -53,9 +57,7 @@ class BelievabilityChecker:
         with open(self.rules_path, "r") as f:
             return json.load(f)
 
-    def test_tactic(
-        self, outputs: dict, tactic: str, method: str = ""
-    ) -> dict:
+    def test_tactic(self, outputs: dict, tactic: str, method: str = "") -> dict:
         """Test one tactic's outputs against its rules."""
         strategy_rules = self.rules.get(tactic, {})
 
@@ -80,9 +82,7 @@ class BelievabilityChecker:
                     logger.debug(f"  Pattern: {pattern}")
                     logger.debug(f"  Output: {output[:200]}")
             else:
-                logger.info(
-                    f"[PASS] {method} | {tactic} | {step_num} (empty pattern)"
-                )
+                logger.info(f"[PASS] {method} | {tactic} | {step_num} (empty pattern)")
 
             if pattern:
                 if re.search(pattern, output, re.MULTILINE | re.IGNORECASE):
@@ -102,9 +102,7 @@ class BelievabilityChecker:
             "details": details,
         }
 
-    def test_scenario(
-        self, scenario_data: dict, method: str = ""
-    ) -> dict:
+    def test_scenario(self, scenario_data: dict, method: str = "") -> dict:
         """Test all tactics in a scenario."""
         results = {}
 
@@ -131,10 +129,12 @@ class BelievabilityChecker:
     def test_method(
         self,
         method: str,
-        scenarios_dir: str = "datasets/scenarios",
+        scenarios_dir: str = "data/scenarios",
     ) -> dict:
         """Test a single method's scenarios."""
-        filepath = f"{scenarios_dir}/{method}.json"
+        filepath = f"{scenarios_dir}/scenarios.json"
+        if not os.path.exists(filepath):
+            filepath = f"{scenarios_dir}/{method}.json"
 
         if not os.path.exists(filepath):
             return {"error": f"File not found: {filepath}"}
@@ -176,7 +176,7 @@ class BelievabilityChecker:
     def test_methods(
         self,
         methods: List[str],
-        scenarios_dir: str = "datasets/scenarios",
+        scenarios_dir: str = "data/scenarios",
     ) -> dict:
         """Test multiple methods and return comparison results."""
         results = {}
@@ -289,104 +289,119 @@ class BelievabilityChecker:
             )
             plt.close()
 
-    def generate_markdown(
-        self, results: dict, title: str = "Believability Analysis"
-    ) -> str:
-        """Generate markdown report from results."""
-        methods = [m for m in results.keys() if not m.startswith("_")]
 
-        md = f"# {title}\n\n"
+class CommandsChecker:
+    def __init__(
+        self,
+        rules_path: Optional[str] = None,
+        categories_path: Optional[str] = None,
+        output_dir: str = "output",
+    ):
+        self.rules_path = rules_path or DEFAULT_COMMANDS_RULES
+        self.categories_path = categories_path or DEFAULT_COMMANDS_CATEGORIES
+        self.output_dir = output_dir
+        self.rules = self._load_rules()
+        self.categories = self._load_categories()
 
-        md += "## Results Table\n\n"
-        md += "| Scenario"
-        for method in methods:
-            md += f" | {method}"
-        md += " |\n"
+    def _load_rules(self) -> dict:
+        with open(self.rules_path, "r") as f:
+            return json.load(f)
 
-        md += "|"
-        for _ in range(len(methods) + 1):
-            md += " --- |"
-        md += "\n"
+    def _load_categories(self) -> dict:
+        with open(self.categories_path, "r") as f:
+            return json.load(f)
 
-        for tactic in self.tactics:
-            md += f"| {tactic}"
-            for method in methods:
-                acc = results.get(method, {}).get(tactic, {}).get("accuracy", 0)
-                md += f" | {acc:.0f}%"
-            md += " |\n"
+    def test_command(self, command: str, output: str, method: str = "") -> dict:
+        """Test one command output against its regex pattern."""
+        pattern = self.rules.get(command, "")
 
-        md += f"| **Overall**"
-        for method in methods:
-            overall = results.get(method, {}).get("_overall", {}).get("accuracy", 0)
-            md += f" | **{overall:.0f}%**"
-        md += " |\n"
+        if not pattern:
+            return {
+                "matched": True,
+                "pattern": "",
+                "output": str(output)[:200] if output else "",
+            }
 
-        md += "\n## Token Usage\n\n"
-        md += "| Tactic"
-        for method in methods:
-            md += f" | {method}"
-        md += " |\n"
+        output_str = str(output) if output else ""
+        match = re.search(pattern, output_str, re.MULTILINE | re.DOTALL | re.IGNORECASE)
 
-        md += "|"
-        for _ in range(len(methods) + 1):
-            md += " --- |"
-        md += "\n"
+        if match:
+            logger.info(f"[PASS] {method} | {command}")
+        else:
+            logger.warning(f"[FAIL] {method} | {command}")
+            logger.debug(f"  Pattern: {pattern}")
+            logger.debug(f"  Output: {output_str[:200]}")
 
-        for tactic in self.tactics:
-            md += f"| {tactic}"
-            for method in methods:
-                tokens = results.get(method, {}).get("_tokens", {}).get(tactic, 0)
-                md += f" | {tokens}"
-            md += " |\n"
+        return {
+            "matched": bool(match),
+            "pattern": pattern,
+            "output": output_str[:200],
+        }
 
-        md += f"| **Total**"
-        for method in methods:
-            total = results.get(method, {}).get("_tokens", {}).get("_total", 0)
-            md += f" | **{total}**"
-        md += " |\n"
+    def test_method(self, method: str, commands_dir: str = "data/commands") -> dict:
+        """Test a single method's command outputs."""
+        filepath = f"{commands_dir}/commands.json"
+        if not os.path.exists(filepath):
+            filepath = f"{commands_dir}/{method}.json"
 
-        md += "\n## Bar Chart\n\n"
-        md += "![Believability Bar Chart](result_bar.png)\n\n"
+        if not os.path.exists(filepath):
+            return {"error": f"File not found: {filepath}"}
 
-        md += "## Token Charts\n\n"
-        for tactic in self.tactics:
-            md += f"### {tactic.replace('_', ' ').title()}\n"
-            md += f"![{tactic} Tokens](result_tokens_{tactic}.png)\n\n"
+        with open(filepath, "r") as f:
+            command_outputs = json.load(f)
 
-        md += "## Summary\n\n"
+        results = {}
+        category_results = {}
 
-        best_method = None
-        best_score = 0
-
-        for method in methods:
-            if method == "control":
+        for command, output in command_outputs.items():
+            if command == "tokens_used":
                 continue
-            score = results.get(method, {}).get("_overall", {}).get("accuracy", 0)
-            if score > best_score:
-                best_score = score
-                best_method = method
 
-        if best_method:
-            md += f"- **Best performing honeypot**: {best_method} ({best_score:.0f}%)\n"
+            category = self.categories.get(command, "unknown")
+            test_result = self.test_command(command, output, method)
 
-        control_acc = results.get("control", {}).get("_overall", {}).get("accuracy", 0)
-        md += f"- **Control (real system)**: {control_acc:.0f}%\n"
+            results[command] = test_result
 
-        return md
+            if category not in category_results:
+                category_results[category] = {"matched": 0, "total": 0}
 
+            category_results[category]["total"] += 1
+            if test_result["matched"]:
+                category_results[category]["matched"] += 1
 
-def test_all_methods(
-    methods: Optional[List[str]] = None, scenarios_dir: str = "datasets/scenarios"
-) -> dict:
-    """Convenience function to test all methods."""
-    checker = BelievabilityChecker()
+        for cat in category_results:
+            if category_results[cat]["total"] > 0:
+                category_results[cat]["accuracy"] = (
+                    category_results[cat]["matched"]
+                    / category_results[cat]["total"]
+                    * 100
+                )
 
-    if methods is None:
-        from utils import MODEL_NAME
+        total_matched = sum(1 for r in results.values() if r["matched"])
+        total_commands = len(results)
+        overall_accuracy = (
+            (total_matched / total_commands * 100) if total_commands > 0 else 0
+        )
 
-        methods = ["control", MODEL_NAME, "cowrie"]
+        results["_overall"] = {
+            "matched": total_matched,
+            "total": total_commands,
+            "accuracy": overall_accuracy,
+        }
+        results["_categories"] = category_results
 
-    return checker.test_methods(methods, scenarios_dir)
+        return results
+
+    def test_methods(
+        self, methods: List[str], commands_dir: str = "data/commands"
+    ) -> dict:
+        """Test multiple methods and return comparison results."""
+        results = {}
+
+        for method in methods:
+            results[method] = self.test_method(method, commands_dir)
+
+        return results
 
 
 if __name__ == "__main__":
@@ -402,4 +417,4 @@ if __name__ == "__main__":
         methods = ["control", MODEL_NAME, "cowrie"]
 
     results = checker.test_methods(methods)
-    print(checker.generate_markdown(results))
+    print("Results:", results)

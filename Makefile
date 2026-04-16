@@ -2,9 +2,16 @@
 
 default: shell
 
-test:
+build:
+	docker compose build
+
+analyze:
 	docker compose up -d --build
-	docker compose exec app uv run src/test.py
+	docker compose exec app uv run src/test.py --analyze all
+
+generate:
+	docker compose up -d --build
+	docker compose exec app uv run src/test.py --llm all
 
 shell:
 	docker compose up -d --build
@@ -12,4 +19,4 @@ shell:
 
 clean:
 	docker compose down
-	rm -rf output/* logs/*
+	rm -rf logs/*
