@@ -5,9 +5,11 @@ Tests scenario outputs against regex rules to determine believability score.
 """
 
 import json
+import logging
 import re
 import os
-from typing import Dict, List, Any, Optional
+from datetime import datetime
+from typing import List, Optional
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -16,6 +18,22 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_RULES = os.path.join(SCRIPT_DIR, "..", "datasets", "scenarios_rules.json")
 
 matplotlib.use("Agg")
+
+logger = logging.getLogger("test")
+logger.setLevel(logging.INFO)
+logger.handlers.clear()
+
+log_handler = logging.FileHandler(
+    f"logs/test_{datetime.now().strftime('%d_%H-%M')}.log"
+)
+log_handler.setLevel(logging.INFO)
+log_handler.setFormatter(
+    logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+)
+logger.addHandler(log_handler)
 
 
 class BelievabilityChecker:
@@ -35,7 +53,9 @@ class BelievabilityChecker:
         with open(self.rules_path, "r") as f:
             return json.load(f)
 
-    def test_tactic(self, outputs: dict, tactic: str) -> dict:
+    def test_tactic(
+        self, outputs: dict, tactic: str, method: str = ""
+    ) -> dict:
         """Test one tactic's outputs against its rules."""
         strategy_rules = self.rules.get(tactic, {})
 
@@ -48,6 +68,21 @@ class BelievabilityChecker:
             output = outputs.get(step_num, "")
 
             total += 1
+
+            if pattern:
+                match = re.search(pattern, output, re.MULTILINE | re.IGNORECASE)
+                if match:
+                    logger.info(f"[PASS] {method} | {tactic} | {step_num}")
+                    logger.debug(f"  Pattern: {pattern}")
+                    logger.debug(f"  Output: {output[:200]}")
+                else:
+                    logger.warning(f"[FAIL] {method} | {tactic} | {step_num}")
+                    logger.debug(f"  Pattern: {pattern}")
+                    logger.debug(f"  Output: {output[:200]}")
+            else:
+                logger.info(
+                    f"[PASS] {method} | {tactic} | {step_num} (empty pattern)"
+                )
 
             if pattern:
                 if re.search(pattern, output, re.MULTILINE | re.IGNORECASE):
@@ -67,7 +102,9 @@ class BelievabilityChecker:
             "details": details,
         }
 
-    def test_scenario(self, scenario_data: dict) -> dict:
+    def test_scenario(
+        self, scenario_data: dict, method: str = ""
+    ) -> dict:
         """Test all tactics in a scenario."""
         results = {}
 
@@ -77,7 +114,7 @@ class BelievabilityChecker:
 
             outputs = scenario_data.get(tactic, {})
             if outputs:
-                results[tactic] = self.test_tactic(outputs, tactic)
+                results[tactic] = self.test_tactic(outputs, tactic, method)
 
         total_matched = sum(r["matched"] for r in results.values())
         total_steps = sum(r["total"] for r in results.values())
@@ -92,7 +129,9 @@ class BelievabilityChecker:
         return results
 
     def test_method(
-        self, method: str, scenarios_dir: str = "datasets/scenarios"
+        self,
+        method: str,
+        scenarios_dir: str = "datasets/scenarios",
     ) -> dict:
         """Test a single method's scenarios."""
         filepath = f"{scenarios_dir}/{method}.json"
@@ -105,7 +144,7 @@ class BelievabilityChecker:
 
         tokens = self._extract_tokens(scenario_data)
 
-        result = self.test_scenario(scenario_data)
+        result = self.test_scenario(scenario_data, method)
         result["_tokens"] = tokens
 
         return result
@@ -135,7 +174,9 @@ class BelievabilityChecker:
         return tokens
 
     def test_methods(
-        self, methods: List[str], scenarios_dir: str = "datasets/scenarios"
+        self,
+        methods: List[str],
+        scenarios_dir: str = "datasets/scenarios",
     ) -> dict:
         """Test multiple methods and return comparison results."""
         results = {}
