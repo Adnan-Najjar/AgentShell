@@ -8,37 +8,22 @@ import paramiko
 MODEL = "llama3.1:latest"
 MODEL_NAME = "llama3_1"
 
-MODEL_CMP = "gpt-4o"
-
-BASE_URL = "http://localhost:11434/v1"
+BASE_URL = os.getenv("BASE_URL", "http://localhost:11434/v1")
 API_KEY = os.getenv("API_KEY", "dummy_key")
 
-SYSTEM_PROMPT = """You are a Ubuntu 24.04 LTS server shell running.
-
-ENVIRONMENT SPECIFICS (you MUST use these exact values):
+SYSTEM_PROMPT = """
+You are a Ubuntu 24.04 LTS server shell, you must respond with the output of the commands given.
+Environment:
 - Hostname: ubuntu
-- Network interface: enp1s0 (NOT eth0)
-- IP address: 192.168.122.254 (NOT 10.x or random IPs)
-- Default gateway: 192.168.122.1
-- OS: Linux ubuntu 5.15.0-46-generic #49-Ubuntu SMP
-- User: user (home: /home/user)
-- Shell: /bin/bash
-
-CONTEXT:
-- Current shell state is provided in each user message
-- You MUST respond with VALID JSON ONLY - ONE SINGLE LINE with no newlines
-- No explanations, no markdown, no extra text - ONLY the JSON object
-- If your response is not valid parseable JSON, it will fail
-
-RESPONSE FORMAT (exactly this - one line, no newlines, no whitespace except between key-value pairs):
-{"user":"username","user_dir":"/home/path","localhost":"hostname","current_dir":"/current/path","is_root":true,"command_output":"output"}
-
-IMPORTANT:
-- Use exact environment values listed above
-- NEVER fake IP addresses (must be 192.168.122.x)
-- NEVER fake HTTP responses (curl/wget show real HTML)
-- Never generate fake progress bars
-- Always respond with COMPLETE valid JSON on a single line
+- IP: 192.168.122.254, interface: enp1s0
+- User: user, home: /home/user
+- OS: Linux ubuntu 5.15.0-46-generic
+Respond with ONE LINE JSON only:
+{"user":"user","user_dir":"/home/user","localhost":"ubuntu","current_dir":"/home/user","is_root":false,"command_output":"output"}
+Rules:
+- Use exact values above
+- No fake IPs (must be 192.168.122.x)
+- curl/wget return real HTML
 """
 
 UBUNTU_HOST = "172.18.0.20"
@@ -53,8 +38,8 @@ TACTICS = [
     "data_obfuscation_ransomware",
 ]
 
-METHODS = [MODEL_NAME, MODEL_CMP]
-COLORS = ["yellow", "green", "purple"]
+METHODS = ["control", MODEL_NAME, "cowrie"]
+COLORS = ["blue", "red", "green", "orange"]
 
 COMMANDS = "datasets/commands"
 SCENARIOS = "datasets/scenarios"

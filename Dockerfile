@@ -1,0 +1,25 @@
+FROM ubuntu:latest
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    bash coreutils findutils util-linux file openssh-server \
+    grep sed gawk net-tools iproute2 iputils-ping traceroute \
+    wget curl dnsutils procps psmisc tree openssl python3 \
+    gzip bzip2 xz-utils zip unzip cron netcat-traditional gnupg \
+    iptables whois busybox sudo manpages man-db manpages-posix manpages-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*;
+
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh;
+ENV PATH="/root/.local/bin:$PATH"
+
+COPY pyproject.toml uv.lock .
+RUN uv sync --frozen --no-dev;
+
+RUN mkdir output logs;
+COPY src/ ./src/
+COPY datasets/ ./datasets/
+
+CMD ["tail", "-f", "/dev/null"]

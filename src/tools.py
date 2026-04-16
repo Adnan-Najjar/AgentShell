@@ -1,8 +1,7 @@
 import logging
 import re
 import sqlite3
-
-import docker
+import subprocess
 
 from utils import OUTPUT_DIR
 
@@ -15,18 +14,6 @@ class Tools:
 
         self.conn = sqlite3.connect(f"{OUTPUT_DIR}/history.db", check_same_thread=False)
         self._init_db()
-
-        self.container_name = "user"
-        self.client = docker.from_env()
-        self._ensure_container()
-
-    def _ensure_container(self):
-        try:
-            self.container = self.client.containers.get(self.container_name)
-            if self.container.status != "running":
-                self.container.start()
-        except:
-            raise RuntimeError(f"Run docker {self.container_name} container first.")
 
     def _init_db(self):
         cursor = self.conn.cursor()
@@ -82,54 +69,76 @@ class Tools:
         self.conn.commit()
 
     def validate_command(self, command: str) -> tuple[bool, str]:
-        exit_code, _ = self.container.exec_run(
-            cmd=["/bin/bash", "-c", f"command -v {command}"]
-        )
-        error_msg = f"bash: {command.split()[0]}: command not found"
-        if exit_code == 0:
-            exit_code, error_msg = self.container.exec_run(
-                cmd=["/bin/bash", "-n", "-c", command]
+        try:
+            result = subprocess.run(
+                ["bash", "-c", f"command -v {command.split()[0]}"],
+                capture_output=True,
+                timeout=5,
             )
+            if result.returncode != 0:
+                return False, f"bash: {command.split()[0]}: command not found"
 
-        return True if exit_code == 0 else False, error_msg
+            result = subprocess.run(
+                ["bash", "-n", "-c", command], capture_output=True, timeout=5
+            )
+            return (
+                result.returncode == 0,
+                "syntax error" if result.returncode != 0 else "",
+            )
+        except subprocess.TimeoutExpired:
+            return False, "command timed out"
 
     def _help_page(self, command: str, option: str) -> str:
         logger.debug(f"RAG: Fetching --help for {command} {option}")
 
-        help_cmd = f"{command} --help"
-        exit_code, page = self.container.exec_run(cmd=["/bin/bash", "-c", help_cmd])
-        if exit_code != 0:
-            logger.debug(f"RAG: No help page found for {command} {option}")
-            return ""
-        help_page = page.decode("utf-8")
+        try:
+            help_cmd = f"{command} --help"
+            result = subprocess.run(
+                ["bash", "-c", help_cmd], capture_output=True, text=True, timeout=10
+            )
+            if result.returncode != 0:
+                logger.debug(f"RAG: No help page found for {command} {option}")
+                return ""
+            help_page = result.stdout
 
-        if option == "":
-            return "".join(help_page.splitlines()[0:4])
-        help_re = re.compile(
-            rf"^\s*(-[a-zA-Z], )?{option}.*?^\s*(?=-)", re.MULTILINE | re.DOTALL
-        )
-        help_page = help_re.search(help_page)
-        if help_page:
-            return help_page.group()
+            if option == "":
+                return "\n".join(help_page.splitlines()[0:4])
+            help_re = re.compile(
+                rf"^\s*(-[a-zA-Z], )?{option}.*?^\s*(?=-)", re.MULTILINE | re.DOTALL
+            )
+            help_page = help_re.search(help_page)
+            if help_page:
+                return help_page.group()
+        except subprocess.TimeoutExpired:
+            logger.debug(f"RAG: Timeout fetching help for {command} {option}")
+        except Exception as e:
+            logger.debug(f"RAG: Error fetching help for {command} {option}: {e}")
 
         return ""
 
     def _man_page(self, command: str, option: str) -> str:
         logger.debug(f"RAG: Fetching man page for {command} {option}")
 
-        man_cmd = f"MANWIDTH=999 man -P cat {command}"
-        exit_code, page = self.container.exec_run(cmd=["/bin/bash", "-c", man_cmd])
-        if exit_code != 0:
-            logger.debug(f"RAG: No man page found for {command} {option}")
-            return ""
-        man_page = page.decode("utf-8")
+        try:
+            man_cmd = f"MANWIDTH=999 man -P cat {command}"
+            result = subprocess.run(
+                ["bash", "-c", man_cmd], capture_output=True, text=True, timeout=10
+            )
+            if result.returncode != 0:
+                logger.debug(f"RAG: No man page found for {command} {option}")
+                return ""
+            man_page = result.stdout
 
-        man_re = re.compile(
-            rf"^\s*(-[a-zA-Z], )?{option}.*?^\s*(?=-)", re.MULTILINE | re.DOTALL
-        )
-        man_page = man_re.search(man_page)
-        if man_page:
-            return man_page.group()
+            man_re = re.compile(
+                rf"^\s*(-[a-zA-Z], )?{option}.*?^\s*(?=-)", re.MULTILINE | re.DOTALL
+            )
+            man_page = man_re.search(man_page)
+            if man_page:
+                return man_page.group()
+        except subprocess.TimeoutExpired:
+            logger.debug(f"RAG: Timeout fetching man page for {command} {option}")
+        except Exception as e:
+            logger.debug(f"RAG: Error fetching man page for {command} {option}: {e}")
 
         return ""
 
@@ -140,7 +149,7 @@ class Tools:
         for command in commands:
             output += self._help_page(command["command"], "")
             for option in command["flags"]:
-                logger.info(f"RAG: command: {command["command"]} | flags: {option}")
+                logger.info(f"RAG: command: {command['command']} | flags: {option}")
                 if option:
                     output += self._help_page(command["command"], option)
                     output += "\n"
