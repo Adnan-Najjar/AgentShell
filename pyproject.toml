@@ -9,4 +9,5 @@ dependencies = [
     "openai>=1.0.0",
     "paramiko>=4.0.0",
     "pydantic>=2.12.5",
+    "instructor>=1.0.0",
 ]

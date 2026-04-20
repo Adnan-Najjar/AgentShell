@@ -1,9 +1,9 @@
 from datetime import datetime
 import logging
-import os
 import re
 
 from openai import OpenAI
+import instructor
 from pydantic import BaseModel
 
 from utils import (
@@ -88,16 +88,14 @@ Dynamic environment variables in JSON (you must return all of them):
 }}
 """
 
-    def _handle_llm(self, query: str, docs: str) -> str:
-        full_query = f"{self._format_state()}\n\n{docs}\n\nUser Query: {query}"
-
+    def _chat_completion(self, prompt: str):
         client = OpenAI(base_url=BASE_URL, api_key=API_KEY, timeout=None)
 
         response = client.chat.completions.create(
             model=MODEL,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": full_query},
+                {"role": "user", "content": prompt},
             ],
             temperature=0.1,
             response_format={"type": "json_object"},
@@ -105,33 +103,44 @@ Dynamic environment variables in JSON (you must return all of them):
 
         self.total_tokens = response.usage.total_tokens if response.usage else 0
 
-        logger.info(f"Raw JSON: {response.choices[0].message.content}")
+        raw_output = response.choices[0].message.content or ""
+        logger.info(f"Raw JSON: {raw_output}")
+        return raw_output
+
+    def _handle_llm(self, query: str, docs: str) -> str:
+        full_query = f"{self._format_state()}\n\n{docs}\n\nUser Query: {query}"
+
+        client = instructor.from_openai(
+            OpenAI(base_url=BASE_URL, api_key=API_KEY, timeout=None)
+        )
 
         try:
-            structured_output = OutputStructure.model_validate_json(
-                response.choices[0].message.content or ""
+            structured_output = client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": full_query},
+                ],
+                temperature=0.1,
+                response_model=OutputStructure,
+                max_retries=3,
             )
-
-            logger.info(f"State update: {structured_output.model_dump()}")
-
-            self.current_state = {
-                "USER": structured_output.user,
-                "HOME": structured_output.home,
-                "HOSTNAME": structured_output.hostname,
-                "PWD": structured_output.pwd,
-                "IS_ROOT": structured_output.is_root,
-                "filesystem": structured_output.filesystem,
-            }
-
-            logger.info(
-                f"Output: {structured_output.command_output[:100]}{'...' if len(structured_output.command_output) > 100 else ''}"
-            )
-
-            return structured_output.command_output
-
         except Exception as e:
-            logger.error(f"Failed to parse response: {e}")
+            logger.error(f"LLM error after 3 retries: {e}")
             return ""
+
+        logger.info(f"State update: {structured_output.model_dump()}")
+
+        self.current_state = {
+            "USER": structured_output.user,
+            "HOME": structured_output.home,
+            "HOSTNAME": structured_output.hostname,
+            "PWD": structured_output.pwd,
+            "IS_ROOT": structured_output.is_root,
+            "filesystem": structured_output.filesystem,
+        }
+
+        return structured_output.command_output
 
     def parse_command(self, query: str) -> list:
         # Split by shell operators: |, ||, &&, ;
