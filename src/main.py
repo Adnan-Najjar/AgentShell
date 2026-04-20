@@ -14,9 +14,10 @@ from utils import (
     SYSTEM_PROMPT,
     HOSTNAME,
     USER,
+    IS_ROOT,
     USER_DIR,
     CURR_DIR,
-    LOG_DIR
+    LOG_DIR,
 )
 from tools import Tools
 
@@ -43,6 +44,7 @@ class OutputStructure(BaseModel):
     hostname: str
     pwd: str
     is_root: bool
+    filesystem: dict
     command_output: str
 
 
@@ -58,9 +60,10 @@ class Agent:
             "HOME": USER_DIR,
             "LOGNAME": USER,
             "PWD": CURR_DIR,
-            "_": "/bin/bash",  # args of last command
+            "_": "/bin/sh",  # args of last command
             "?": "0",  # last command status
-            "IS_ROOT": False,
+            "IS_ROOT": IS_ROOT,
+            "filesystem": {},
         }
         self.total_tokens = 0
 
@@ -73,13 +76,14 @@ class Agent:
 
     def _format_state(self) -> str:
         return f"""
-Current state or environment variables in JSON:
+Dynamic environment variables in JSON (you must return all of them):
 {{
 "user": "{self.current_state["USER"]}",
 "home": "{self.current_state["HOME"]}",
 "hostname": "{self.current_state["HOSTNAME"]}",
 "pwd": "{self.current_state["PWD"]}",
 "is_root": "{self.current_state["IS_ROOT"]}",
+"filesystem": {self.current_state["filesystem"]},
 "command_output": "<your_output_here>"
 }}
 """
@@ -116,6 +120,7 @@ Current state or environment variables in JSON:
                 "HOSTNAME": structured_output.hostname,
                 "PWD": structured_output.pwd,
                 "IS_ROOT": structured_output.is_root,
+                "filesystem": structured_output.filesystem,
             }
 
             logger.info(

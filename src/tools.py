@@ -173,17 +173,19 @@ class Tools:
                     output += self._man_page(command["command"], option)
                     output += "\n"
 
+        output = re.sub(r"^\n\s*", "", output)
         logger.info(f"RAG: Returned {output}")
-        return re.sub(r"\n\s*\n", "", output)
+        return output
 
     def handle_env(self, command: str, current_state: dict) -> str:
         logger.debug(f"env: {command}")
         parts = command.split(maxsplit=1)
-        all_vars = dict(ENV_VARS)
-        all_vars.update(current_state)
+
+        all_vars = dict(ENV_VARS) | current_state
+        not_vars = ["0","#","-","?", "IS_ROOT","filesystem"]
 
         if len(parts) == 1:
-            filtered_vars = {k: v for k, v in all_vars.items() if k not in ("_", "?")}
+            filtered_vars = {k: v for k, v in all_vars.items() if k not in not_vars}
             return "\n".join(f"{k}={v}" for k, v in filtered_vars.items())
 
         arg = parts[1].strip()

@@ -5,8 +5,8 @@ WORKDIR /app
 RUN yes | unminimize
 RUN apt-get update && apt-get install -y \
     bash coreutils findutils util-linux file openssh-server \
-    grep sed gawk net-tools iproute2 iputils-ping traceroute \
-    wget curl dnsutils procps psmisc tree openssl python3 \
+    grep sed gawk net-tools iproute2 iputils-ping traceroute ncat \
+    wget curl dnsutils procps psmisc tree openssl python3 fdisk \
     gzip bzip2 xz-utils zip unzip cron netcat-traditional gnupg \
     iptables whois busybox sudo manpages man-db manpages-posix manpages-dev \
     && apt-get clean \

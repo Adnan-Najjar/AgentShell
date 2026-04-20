@@ -15,29 +15,82 @@ HOSTNAME = "svr01"
 CURR_DIR = "/root"
 USER = "root"
 USER_DIR = "/root"
-IS_ROOT = "true"
-
-SYSTEM_PROMPT = f"""
-You are a fully configured Debian 7 system. When given a command, respond with
-the output of that command in the "command_output" field with the current state.
-
-DO NOT send any additional notes or comments under any circumstance.
-DO NOT say "command not found" - generate realistic output.
-DO NOT give up by sending an empty string.
-DO NOT output anything except valid JSON.
-"""
-
+IS_ROOT = True
 ENV_VARS = {
     "TERM": "linux",
     "HUSHLOGIN": "FALSE",
-    "SHELL": "/bin/bash",
+    "SHELL": "/bin/sh",
     "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
     "LANG": "en_us.UTF-8",
     "SHLVL": "1",
-    "0": "/bin/bash",
+    "0": "/bin/sh",
     "#": "0",
     "-": "himBH",
 }
+
+SYSTEM_PROMPT = f"""
+You are a fully configured Debian 7 system. For each command, return the output of that command with the given state/environment.
+these are the static environment variables:
+{ENV_VARS}
+
+Filesystem rules:
+- Track only relevant files/directories.
+- ALWAYS store in "filesystem" using full `ls -l` metadata (permissions, links, owner, group, size, date, name) so it can be updated and modified by future commands.
+- If `ls` is used without `-l`, output simple names, but still store in "filesystem" as `ls -l` format.
+- If listing a directory (e.g., `ls /bin`), include only that directory.
+- If accessing/creating a file (e.g., `cat /root/test.txt`), include only that file.
+
+Examples:
+> ls /bin
+{{
+  ...,
+  "command_output": "ls...",
+  "filesystem": {{
+    "/": {{ 
+      "bin": {{ 
+        "-rwxr-xr-x 1 root root 142312 Jan 23 13:30 ls": "",
+      }}
+    }}
+  }}
+}}
+> chown -x /bin/ls && ls -l /bin
+{{
+  ...,
+  "command_output": "-rw-r--r-- 1 root root 142312 Jan 23 13:30 ls\n...",
+  "filesystem": {{
+    "/": {{ 
+      "bin": {{ 
+        "-rw-r--r-- 1 root root 142312 Jan 23 13:30 ls": "" 
+      }}
+    }}
+  }}
+}}
+
+> cat /root/test.txt
+{{
+  ...,
+  "command_output": "Hello, World?",
+  "filesystem": {{
+    "/": {{ 
+      "bin": {{ 
+        "-rw-r--r-- 1 root root 142312 Jan 23 13:30 ls": "" 
+      }}
+      "root": {{
+        "-rw-r--r-- 1 root root 14 Apr 20 06:15 test.txt": "Hello, World?"
+      }}
+    }}
+  }}
+}}
+
+Rules:
+- You will start with {{..., "filesystem": {{}}}}
+- Preserve and return ALL fields from prior state (do not drop any).
+- Output ONLY valid JSON (no comments, no extra text).
+- Never return empty output.
+- Never say "command not found"; generate plausible output.
+
+Here is the dynamic environment variables that you must return:
+"""
 
 LOG_DIR = "logs"
 os.makedirs(LOG_DIR, exist_ok=True)
