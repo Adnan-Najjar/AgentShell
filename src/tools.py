@@ -3,6 +3,7 @@ import os
 import re
 import sqlite3
 import subprocess
+from datetime import datetime
 
 from utils import OUTPUT_DIR, MODEL_NAME, ENV_VARS
 
@@ -182,7 +183,7 @@ class Tools:
         parts = command.split(maxsplit=1)
 
         all_vars = dict(ENV_VARS) | current_state
-        not_vars = ["0","#","-","?", "IS_ROOT","filesystem"]
+        not_vars = ["0", "#", "-", "?", "IS_ROOT", "filesystem"]
 
         if len(parts) == 1:
             filtered_vars = {k: v for k, v in all_vars.items() if k not in not_vars}
@@ -346,3 +347,58 @@ E: Some index files failed to download. They have been ignored, or old ones used
         logger.debug(f"env_vars: {query}")
         all_vars = ENV_VARS | current_state
         return re.sub(r"\$(\w+)", lambda m: all_vars.get(m.group(1), m.group(0)), query)
+
+    def handle_downloads(self, command: str) -> str:
+        logger.debug(f"downloads: {command}")
+
+        parts = command.split(maxsplit=1)
+        cmd = parts[0]
+        args = parts[1] if len(parts) > 1 else ""
+
+        downloads = f"{OUTPUT_DIR}/downloads"
+        os.makedirs(downloads, exist_ok=True)
+
+        url_match = re.search(r"https?://([^/]+)", args)
+        domain = url_match.group(1) if url_match else "unknown"
+        logger.debug(f"downloads: extracted domain={domain}")
+
+        file_match = re.search(r"-[Oo]\s*([^ ]*)", args)
+        if file_match and file_match.group(1) != "-":
+            filename = os.path.basename(file_match.group(1)).strip()
+        else:
+            filename = "file.txt"
+        logger.debug(f"downloads: filename={filename}")
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = f"{domain}_{timestamp}_{filename}"
+        output_path = f"{downloads}/{output_file}"
+
+        if cmd == "curl":
+            full_command = f"{cmd} -o {output_path} {args}"
+        else:
+            full_command = f"{cmd} {args} -O {output_path}"
+        logger.debug(f"downloads: full_command={full_command}")
+
+        result = subprocess.run(
+            ["bash", "-c", full_command],
+            capture_output=True,
+            text=True,
+        )
+
+        output = result.stdout or result.stderr
+        output = output.replace("\nWarning: Got more output options than URLs\n", "")
+        output = output.replace(output_path, filename)
+
+        logger.debug(f"downloads: returning stdout (no -o/-O flag)")
+        if filename == "file.txt":
+            with open(output_path, "r") as file:
+                outfile = file.read()
+            if cmd == "curl":
+                return f"{output}\n{outfile}"
+            else:
+                output = output.replace(f"'{filename}'\n", "'STDOUT'\n")
+                output = output.replace(f"{filename} ", outfile)
+                output = output.replace(f"'{filename}' saved", "written to stdout")
+                return output
+        else:
+            return output

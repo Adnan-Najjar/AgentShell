@@ -207,6 +207,8 @@ Dynamic environment variables in JSON (you must return all of them):
         elif command == "history":
             output = self.tools.handle_history(prompt)
             logger.info(f"history: {output}")
+        elif command == "curl" or command == "wget":
+            output = self.tools.handle_downloads(prompt)
         else:
             valid, error_msg = self.tools.validate_command(command)
             if not valid:
