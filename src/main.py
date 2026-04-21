@@ -1,10 +1,10 @@
 from datetime import datetime
+import json
 import logging
 import re
 
 from openai import OpenAI
-import instructor
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from utils import (
     MODEL,
@@ -52,6 +52,8 @@ class Agent:
     def __init__(self, model: str = MODEL_NAME) -> None:
         logger.info(f"Initializing Agent with {model}")
 
+        self.client = OpenAI(base_url=BASE_URL, api_key=API_KEY, timeout=None)
+
         self.tools = Tools(model)
 
         self.current_state = {
@@ -89,58 +91,53 @@ Dynamic environment variables in JSON (you must return all of them):
 """
 
     def _chat_completion(self, prompt: str):
-        client = OpenAI(base_url=BASE_URL, api_key=API_KEY, timeout=None)
+        max_retries = 3
+        retry_info = ""
 
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.1,
-            response_format={"type": "json_object"},
-        )
-
-        self.total_tokens = response.usage.total_tokens if response.usage else 0
-
-        raw_output = response.choices[0].message.content or ""
-        logger.info(f"Raw JSON: {raw_output}")
-        return raw_output
-
-    def _handle_llm(self, query: str, docs: str) -> str:
-        full_query = f"{self._format_state()}\n\n{docs}\n\nUser Query: {query}"
-
-        client = instructor.from_openai(
-            OpenAI(base_url=BASE_URL, api_key=API_KEY, timeout=None)
-        )
-
-        try:
-            structured_output = client.chat.completions.create(
-                model=MODEL,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": full_query},
-                ],
-                temperature=0.1,
-                response_model=OutputStructure,
-                max_retries=3,
+        for attempt in range(max_retries):
+            full_prompt = f"{prompt}{retry_info}"
+            logger.info(
+                f"LLM: attempt {attempt + 1}/{max_retries}, prompt length: {len(full_prompt)}"
             )
-        except Exception as e:
-            logger.error(f"LLM error after 3 retries: {e}")
-            return ""
 
-        logger.info(f"State update: {structured_output.model_dump()}")
+            try:
+                completion = self.client.chat.completions.create(
+                    model=MODEL,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": full_prompt},
+                    ],
+                    temperature=0.1,
+                )
 
-        self.current_state = {
-            "USER": structured_output.user,
-            "HOME": structured_output.home,
-            "HOSTNAME": structured_output.hostname,
-            "PWD": structured_output.pwd,
-            "IS_ROOT": structured_output.is_root,
-            "filesystem": structured_output.filesystem,
-        }
+                content = completion.choices[0].message.content
+                if not content:
+                    raise ValueError("Empty response from LLM")
 
-        return structured_output.command_output
+                logger.info(
+                    f"LLM: raw response ({len(content)} chars): {content[:1000]}"
+                )
+
+                data = json.loads(content)
+                logger.info(f"LLM: parsed JSON: {json.dumps(data)[:1000]}")
+
+                self.total_tokens = (
+                    completion.usage.total_tokens if completion.usage else 0
+                )
+
+                return OutputStructure(**data)
+
+            except json.JSONDecodeError as e:
+                logger.warning(f"LLM: attempt {attempt + 1} failed (JSON): {e}")
+                retry_info = (
+                    f"\n\nInvalid JSON: {e}. ONLY return valid JSON with all fields."
+                )
+
+            except ValidationError as e:
+                logger.warning(f"LLM: attempt {attempt + 1} failed (Pydantic): {e}")
+                retry_info = f"\n\nMissing/invalid fields: {e}. Provide: user, home, hostname, pwd, is_root, filesystem, command_output."
+
+        raise Exception(f"LLM failed after {max_retries} retries")
 
     def parse_command(self, query: str) -> list:
         # Split by shell operators: |, ||, &&, ;
@@ -217,7 +214,26 @@ Dynamic environment variables in JSON (you must return all of them):
             else:
                 parsed: list = self.parse_command(query)
                 docs = self.tools.get_docs(parsed)
-                output = self._handle_llm(prompt, docs)
+                prompt = f"{self._format_state()}\n\n{docs}\n\nUser Query: {query}"
+
+                try:
+                    structured_output = self._chat_completion(prompt)
+                except Exception as e:
+                    logger.error(f"LLM error: {e}")
+                    return ""
+
+                logger.info(f"State update: {structured_output.model_dump()}")
+
+                self.current_state = {
+                    "USER": structured_output.user,
+                    "HOME": structured_output.home,
+                    "HOSTNAME": structured_output.hostname,
+                    "PWD": structured_output.pwd,
+                    "IS_ROOT": structured_output.is_root,
+                    "filesystem": structured_output.filesystem,
+                }
+
+                return structured_output.command_output
 
         self.shell_prompt = self._shell_prompt(self.current_state)
 

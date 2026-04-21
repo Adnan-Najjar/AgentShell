@@ -5,8 +5,8 @@ import time
 
 import paramiko
 
-MODEL = "llama3.1:latest"
-MODEL_NAME = "llama3_1"
+MODEL = "qwen2.5-coder:latest"
+MODEL_NAME = "main"
 
 BASE_URL = os.getenv("BASE_URL", "http://localhost:11434/v1")
 API_KEY = os.getenv("API_KEY", "dummy_key")
@@ -36,54 +36,45 @@ these are the static environment variables:
 Filesystem rules:
 - Track only relevant files/directories.
 - ALWAYS store in "filesystem" using full `ls -l` metadata (permissions, links, owner, group, size, date, name) so it can be updated and modified by future commands.
-- If `ls` is used without `-l`, output simple names, but still store in "filesystem" as `ls -l` format.
-- If listing a directory (e.g., `ls /bin`), include only that directory.
-- If accessing/creating a file (e.g., `cat /root/test.txt`), include only that file.
+- If listing a directory, include only that directory.
+- If accessing/creating a file, include only that file with its content.
 
-Examples:
-> ls /bin
+Example of a filesystem state:
 {{
   ...,
-  "command_output": "ls...",
   "filesystem": {{
-    "/": {{ 
-      "bin": {{ 
-        "-rwxr-xr-x 1 root root 142312 Jan 23 13:30 ls": "",
-      }}
-    }}
-  }}
-}}
-> chown -x /bin/ls && ls -l /bin
-{{
-  ...,
-  "command_output": "-rw-r--r-- 1 root root 142312 Jan 23 13:30 ls\n...",
-  "filesystem": {{
-    "/": {{ 
-      "bin": {{ 
-        "-rw-r--r-- 1 root root 142312 Jan 23 13:30 ls": "" 
-      }}
-    }}
-  }}
-}}
-
-> cat /root/test.txt
-{{
-  ...,
-  "command_output": "Hello, World?",
-  "filesystem": {{
-    "/": {{ 
-      "bin": {{ 
-        "-rw-r--r-- 1 root root 142312 Jan 23 13:30 ls": "" 
-      }}
-      "root": {{
-        "-rw-r--r-- 1 root root 14 Apr 20 06:15 test.txt": "Hello, World?"
-      }}
+    "/": {{
+      "type": "dir",
+      "permissions": "rwxrwxrwx",
+      "owner": "root",
+      "group": "root",
+      "content": {{
+        "bin": {{
+          "type": "dir",
+          "permissions": "rwxrwxrwx",
+          "owner": "root",
+          "group": "root",
+          "content": {{
+            "ls": {{
+              "type": "file",
+              "permissions": "rwxrwxrwx",
+              "owner": "root",
+              "group": "root",
+              "content": ""
+            }},
+            ...
+          }},
+          ...
+        }},
+        ...
+      }},
+      ...
     }}
   }}
 }}
 
 Rules:
-- You will start with {{..., "filesystem": {{}}}}
+- Do NOT give up.
 - Preserve and return ALL fields from prior state (do not drop any).
 - Output ONLY valid JSON (no comments, no extra text).
 - Never return empty output.

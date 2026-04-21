@@ -103,7 +103,7 @@ class Tools:
             return False, "command timed out"
 
     def _help_page(self, command: str, option: str) -> str:
-        logger.debug(f"RAG: Fetching --help for {command} {option}")
+        logger.info(f"RAG: Fetching --help for {command} {option}")
 
         try:
             help_cmd = f"{command} --help"
@@ -111,7 +111,7 @@ class Tools:
                 ["bash", "-c", help_cmd], capture_output=True, text=True, timeout=10
             )
             if result.returncode != 0:
-                logger.debug(f"RAG: No help page found for {command} {option}")
+                logger.info(f"RAG: No help page found for {command} {option}")
                 return ""
             help_page = result.stdout
 
@@ -122,14 +122,14 @@ class Tools:
             if help_page:
                 return help_page.group()
         except subprocess.TimeoutExpired:
-            logger.debug(f"RAG: Timeout fetching help for {command} {option}")
+            logger.info(f"RAG: Timeout fetching help for {command} {option}")
         except Exception as e:
-            logger.debug(f"RAG: Error fetching help for {command} {option}: {e}")
+            logger.info(f"RAG: Error fetching help for {command} {option}: {e}")
 
         return ""
 
     def _man_page(self, command: str, option: str = "") -> str:
-        logger.debug(f"RAG: Fetching man page for {command} {option}")
+        logger.info(f"RAG: Fetching man page for {command} {option}")
 
         try:
             man_cmd = f"MANWIDTH=999 man -P cat {command}"
@@ -137,7 +137,7 @@ class Tools:
                 ["bash", "-c", man_cmd], capture_output=True, text=True, timeout=10
             )
             if result.returncode != 0:
-                logger.debug(f"RAG: No man page found for {command} {option}")
+                logger.info(f"RAG: No man page found for {command} {option}")
                 return ""
             man_page = result.stdout
 
@@ -154,9 +154,9 @@ class Tools:
             if man_page:
                 return man_page.group()
         except subprocess.TimeoutExpired:
-            logger.debug(f"RAG: Timeout fetching man page for {command} {option}")
+            logger.info(f"RAG: Timeout fetching man page for {command} {option}")
         except Exception as e:
-            logger.debug(f"RAG: Error fetching man page for {command} {option}: {e}")
+            logger.info(f"RAG: Error fetching man page for {command} {option}: {e}")
 
         return ""
 
@@ -179,7 +179,7 @@ class Tools:
         return output
 
     def handle_env(self, command: str, current_state: dict) -> str:
-        logger.debug(f"env: {command}")
+        logger.info(f"env: {command}")
         parts = command.split(maxsplit=1)
 
         all_vars = dict(ENV_VARS) | current_state
@@ -196,14 +196,14 @@ class Tools:
             return all_vars.get(arg, "")
 
     def handle_export(self, command: str, current_state: dict) -> str:
-        logger.debug(f"export: {command}")
+        logger.info(f"export: {command}")
         parts = command.split(maxsplit=1)
         var_val = parts[1].split("=")
         current_state[var_val[0]] = var_val[1]
         return ""
 
     def handle_apt(self, command: str) -> str:
-        logger.debug(f"apt: {command}")
+        logger.info(f"apt: {command}")
         help_menu = """
 apt 0.9.7.9 for amd64 compiled on Oct 17 2014 09:15:56
 Usage: apt-get [options] command
@@ -316,7 +316,7 @@ E: Some index files failed to download. They have been ignored, or old ones used
                 return help_menu
 
     def handle_history(self, command: str) -> str:
-        logger.debug(f"history: {command}")
+        logger.info(f"history: {command}")
         parts = command.split(maxsplit=1)
         if len(parts) > 1 and parts[1].startswith("-c"):
             self.delete_history()
@@ -344,12 +344,12 @@ E: Some index files failed to download. They have been ignored, or old ones used
         return ""
 
     def handle_env_vars(self, query: str, current_state: dict) -> str:
-        logger.debug(f"env_vars: {query}")
+        logger.info(f"env_vars: {query}")
         all_vars = ENV_VARS | current_state
         return re.sub(r"\$(\w+)", lambda m: all_vars.get(m.group(1), m.group(0)), query)
 
     def handle_downloads(self, command: str) -> str:
-        logger.debug(f"downloads: {command}")
+        logger.info(f"downloads: {command}")
 
         parts = command.split(maxsplit=1)
         cmd = parts[0]
@@ -360,14 +360,14 @@ E: Some index files failed to download. They have been ignored, or old ones used
 
         url_match = re.search(r"https?://([^/]+)", args)
         domain = url_match.group(1) if url_match else "unknown"
-        logger.debug(f"downloads: extracted domain={domain}")
+        logger.info(f"downloads: extracted domain={domain}")
 
         file_match = re.search(r"-[Oo]\s*([^ ]*)", args)
         if file_match and file_match.group(1) != "-":
             filename = os.path.basename(file_match.group(1)).strip()
         else:
             filename = "file.txt"
-        logger.debug(f"downloads: filename={filename}")
+        logger.info(f"downloads: filename={filename}")
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_file = f"{domain}_{timestamp}_{filename}"
@@ -377,7 +377,7 @@ E: Some index files failed to download. They have been ignored, or old ones used
             full_command = f"{cmd} -o {output_path} {args}"
         else:
             full_command = f"{cmd} {args} -O {output_path}"
-        logger.debug(f"downloads: full_command={full_command}")
+        logger.info(f"downloads: full_command={full_command}")
 
         result = subprocess.run(
             ["bash", "-c", full_command],
@@ -389,7 +389,7 @@ E: Some index files failed to download. They have been ignored, or old ones used
         output = output.replace("\nWarning: Got more output options than URLs\n", "")
         output = output.replace(output_path, filename)
 
-        logger.debug(f"downloads: returning stdout (no -o/-O flag)")
+        logger.info(f"downloads: returning stdout (no -o/-O flag)")
         if filename == "file.txt":
             with open(output_path, "r") as file:
                 outfile = file.read()
