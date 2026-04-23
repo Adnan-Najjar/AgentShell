@@ -1,11 +1,13 @@
+from datetime import datetime
 import logging
 import os
 import re
+import shlex
+import shutil
 import sqlite3
 import subprocess
-from datetime import datetime
 
-from utils import OUTPUT_DIR, MODEL_NAME, ENV_VARS
+from utils import ENV_VARS, MODEL_NAME, OUTPUT_DIR
 
 logger = logging.getLogger("agent")
 
@@ -84,31 +86,35 @@ class Tools:
 
     def validate_command(self, command: str) -> tuple[bool, str]:
         try:
-            result = subprocess.run(
-                ["bash", "-c", f"command -v {command.split()[0]}"],
+            tokens = shlex.split(command)
+            cmd = tokens[0] if tokens else ""
+
+            # Check command exists
+            if shutil.which(cmd) is None:
+                return False, f"bash: {cmd}: command not found"
+
+            # Check syntax safely
+            proc = subprocess.run(
+                ["bash", "-n"],
+                input=command,
+                text=True,
                 capture_output=True,
                 timeout=5,
             )
-            if result.returncode != 0:
-                return False, f"bash: {command.split()[0]}: command not found"
 
-            result = subprocess.run(
-                ["bash", "-n", "-c", command], capture_output=True, timeout=5
-            )
-            return (
-                result.returncode == 0,
-                "syntax error" if result.returncode != 0 else "",
-            )
-        except subprocess.TimeoutExpired:
-            return False, "command timed out"
+            if proc.returncode != 0:
+                return False, proc.stderr.strip() or "syntax error"
+
+            return True, ""
+        except:
+            return False, "syntax error"
 
     def _help_page(self, command: str, option: str) -> str:
         logger.info(f"RAG: Fetching --help for {command} {option}")
 
         try:
-            help_cmd = f"{command} --help"
             result = subprocess.run(
-                ["bash", "-c", help_cmd], capture_output=True, text=True, timeout=10
+                [command, "--help"], capture_output=True, text=True, timeout=10
             )
             if result.returncode != 0:
                 logger.info(f"RAG: No help page found for {command} {option}")
@@ -132,9 +138,12 @@ class Tools:
         logger.info(f"RAG: Fetching man page for {command} {option}")
 
         try:
-            man_cmd = f"MANWIDTH=999 man -P cat {command}"
             result = subprocess.run(
-                ["bash", "-c", man_cmd], capture_output=True, text=True, timeout=10
+                ["man", "-P", "cat", command],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                env={"MANWIDTH": "999"},
             )
             if result.returncode != 0:
                 logger.info(f"RAG: No man page found for {command} {option}")
@@ -160,19 +169,17 @@ class Tools:
 
         return ""
 
-    def get_docs(self, commands: list) -> str:
-        logger.info(f"RAG: Request for {len(commands)} commands")
+    def get_docs(self, command: dict) -> str:
+        logger.info(f"RAG: Request for {command} commands")
 
-        output = ""
-        for command in commands:
-            output += self._man_page(command["command"])
-            for option in command["flags"]:
-                logger.info(f"RAG: command: {command['command']} | flags: {option}")
-                if option:
-                    output += self._help_page(command["command"], option)
-                    output += "\n"
-                    output += self._man_page(command["command"], option)
-                    output += "\n"
+        output = self._man_page(command["command"])
+        for option in command["flags"]:
+            logger.info(f"RAG: command: {command['command']} | flags: {option}")
+            if option:
+                output += self._help_page(command["command"], option)
+                output += "\n"
+                output += self._man_page(command["command"], option)
+                output += "\n"
 
         output = re.sub(r"\s{2,}", " ", output)
         logger.info(f"RAG: Returned {output}")
@@ -317,15 +324,15 @@ E: Some index files failed to download. They have been ignored, or old ones used
 
     def handle_history(self, command: str) -> str:
         logger.info(f"history: {command}")
-        parts = command.split(maxsplit=1)
-        if len(parts) > 1 and parts[1].startswith("-c"):
+        tokens = shlex.split(command)
+        if len(tokens) > 1 and tokens[1] == "-c":
             self.delete_history()
             return ""
         return self.get_history()
 
     def handle_cd(self, command: str, current_state: dict) -> str:
-        parts = command.split(maxsplit=1)
-        target = parts[1].strip() if len(parts) > 1 else "~"
+        tokens = shlex.split(command)
+        target = tokens[1] if len(tokens) > 1 else "~"
 
         current = current_state["PWD"]
         user_home = current_state["HOME"]
@@ -351,9 +358,9 @@ E: Some index files failed to download. They have been ignored, or old ones used
     def handle_downloads(self, command: str) -> str:
         logger.info(f"downloads: {command}")
 
-        parts = command.split(maxsplit=1)
-        cmd = parts[0]
-        args = parts[1] if len(parts) > 1 else ""
+        tokens = shlex.split(command)
+        cmd = tokens[0]
+        args = " ".join(tokens[1:]) if len(tokens) > 1 else ""
 
         downloads = f"{OUTPUT_DIR}/downloads"
         os.makedirs(downloads, exist_ok=True)
@@ -380,7 +387,7 @@ E: Some index files failed to download. They have been ignored, or old ones used
         logger.info(f"downloads: full_command={full_command}")
 
         result = subprocess.run(
-            ["bash", "-c", full_command],
+            shlex.split(full_command),
             capture_output=True,
             text=True,
         )

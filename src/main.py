@@ -2,7 +2,7 @@ from datetime import datetime
 import json
 import logging
 import pickle
-import re
+import shlex
 
 from openai import OpenAI
 from pydantic import BaseModel, ValidationError
@@ -20,6 +20,8 @@ from utils import (
     CURR_DIR,
     LOG_DIR,
     extract_paths,
+    parse_shell,
+    extract_command_flags,
 )
 from tools import Tools
 
@@ -260,39 +262,6 @@ Dynamic environment variables in JSON (you must return all of them):
 
         raise Exception(f"LLM failed after {max_retries} retries")
 
-    def parse_command(self, query: str) -> list:
-        # Split by shell operators: |, ||, &&, ;
-        parts = re.split(r"\s*(?:\|{1,2}|&&|;)\s*", query)
-        parsed_commands = []
-
-        for raw_command in parts:
-            if not raw_command.strip():
-                continue
-
-            tokens = raw_command.split()
-            if not tokens:
-                continue
-
-            cmd_name = tokens[0]
-            flags = []
-
-            # Extract only flags, split combined flags
-            # Example: "-la file" -> ["-l", "-a"]
-            for token in tokens[1:]:
-                if token.startswith("--"):
-                    flags.append(token)
-                elif token.startswith("-"):
-                    flags.extend([f"-{c}" for c in token[1:]])
-
-            parsed_commands.append(
-                {
-                    "command": cmd_name,
-                    "flags": flags,
-                }
-            )
-
-        return parsed_commands
-
     def chat(self, query: str) -> str:
         logger.info(f"Query: {query}")
 
@@ -302,12 +271,16 @@ Dynamic environment variables in JSON (you must return all of them):
         # Expand environment variables
         prompt = self.tools.handle_env_vars(query, self.current_state)
 
-        parts = prompt.split(maxsplit=1)
+        # TODO: use parse_shell somehow
+        try:
+            tokens = shlex.split(prompt)
+            command = tokens[0] if tokens else ""
+        except:
+            return "syntax error"
 
         # Get args of the last command
-        self.current_state["_"] = parts[1] if len(parts) > 1 else parts[0]
+        self.current_state["_"] = " ".join(tokens[1:]) if len(tokens) > 1 else command
 
-        command = parts[0]
         if command == "cd":
             output = self.tools.handle_cd(prompt, self.current_state)
         elif command == "export":
@@ -336,7 +309,7 @@ Dynamic environment variables in JSON (you must return all of them):
                 logger.info(f"Invalid command: {command}")
             else:
                 # Get info about the command
-                parsed: list = self.parse_command(query)
+                parsed: dict = extract_command_flags(query)
                 docs = self.tools.get_docs(parsed)
 
                 # Get info about files/dirs in the command
