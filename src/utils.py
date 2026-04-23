@@ -1,12 +1,13 @@
 import json
 import os
 import re
+import shlex
 import time
 
 import paramiko
 
-MODEL = "qwen2.5-coder:latest"
-MODEL_NAME = "main"
+MODEL = "llama3.1-8k:latest"
+MODEL_NAME = "llama3"
 
 BASE_URL = os.getenv("BASE_URL", "http://localhost:11434/v1")
 API_KEY = os.getenv("API_KEY", "dummy_key")
@@ -33,52 +34,36 @@ You are a fully configured Debian 7 system. For each command, return the output 
 these are the static environment variables:
 {ENV_VARS}
 
-Filesystem rules:
-- Track only relevant files/directories.
-- ALWAYS store in "filesystem" using full `ls -l` metadata (permissions, links, owner, group, size, date, name) so it can be updated and modified by future commands.
-- If listing a directory, include only that directory.
-- If accessing/creating a file, include only that file with its content.
-
-Example of a filesystem state:
-{{
-  ...,
-  "filesystem": {{
-    "/": {{
-      "type": "dir",
-      "permissions": "rwxrwxrwx",
-      "owner": "root",
-      "group": "root",
-      "content": {{
-        "bin": {{
-          "type": "dir",
-          "permissions": "rwxrwxrwx",
-          "owner": "root",
-          "group": "root",
-          "content": {{
-            "ls": {{
-              "type": "file",
-              "permissions": "rwxrwxrwx",
-              "owner": "root",
-              "group": "root",
-              "content": ""
-            }},
-            ...
-          }},
-          ...
-        }},
-        ...
-      }},
-      ...
-    }}
-  }}
-}}
-
 Rules:
 - Do NOT give up.
 - Preserve and return ALL fields from prior state (do not drop any).
-- Output ONLY valid JSON (no comments, no extra text).
+- Output ONLY valid JSON (no comments, no extra text) and always use double qoutes in it.
 - Never return empty output.
 - Never say "command not found"; generate plausible output.
+
+Filesystem rules:
+- Only include files or directories that are:
+  - New
+  - Modified
+  - Missing (create dirs and files as you think keeps deciption)
+- Do NOT include unchanged entries.
+- Always start from root "/"
+- Maintain full hierarchical structure for each changed path.
+- If file: "type" should be "file" and the "content" is a string of the file content
+- If directory, "type" should be "dir" and the "content" is an object of the children added
+
+Structure:
+"filesystem": {{
+    "<full_path>": {{
+      "type": "<type>",
+      "permissions": "<unix_permission_string>",
+      "owner": "<owner>",
+      "group": "<group>",
+      "modified": "",
+      "size": "<expected_size_in_MB>",
+      "content": "<file content>"
+    }}
+}}
 
 Here is the dynamic environment variables that you must return:
 """
@@ -173,6 +158,54 @@ def run_cmd_ssh(cmd: str, port: str, hostname="localhost") -> str:
         print(f"SSH connection error: {e}")
         return "error"
 
+def extract_paths(command: str) -> list[str]:
+    """
+    Extract file paths from a bash/linux command.
+    Returns a list of unique file paths found.
+    """
+    paths = []
+
+    # Try to tokenize with shlex (handles quotes properly)
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        tokens = command.split()
+
+    # Skip the command itself (first token) and any flags
+    for token in tokens[1:]:
+        # Skip flags/options
+        if token.startswith('-'):
+            continue
+
+        # Match absolute paths (start with /)
+        if re.match(r'^/[\w./\-_~]+', token):
+            paths.append(token)
+            continue
+
+        # Match relative paths (./path, ../path, or plain file.ext or dir/file)
+        if re.match(r'^\.{1,2}/|^[\w][\w.\-_]*/|^[\w][\w.\-_]*\.\w+$', token):
+            paths.append(token)
+            continue
+
+        # Match home-relative paths (~/)
+        if token.startswith('~/'):
+            paths.append(token)
+            continue
+
+    # Also scan for inline paths not captured by tokenization
+    # e.g., redirects like >output.txt, 2>/dev/null
+    redirect_paths = re.findall(r'[<>|&]\s*(/[\w./\-_~]+|~/[\w./\-_~]+|\.{1,2}/[\w./\-_~]+)', command)
+    paths.extend(redirect_paths)
+
+    # Deduplicate while preserving order
+    seen = set()
+    result = []
+    for p in paths:
+        if p not in seen:
+            seen.add(p)
+            result.append(p)
+
+    return result
 
 def collect_commands(output_filename: str, port: str, hostname="localhost"):
     """

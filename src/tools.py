@@ -174,7 +174,7 @@ class Tools:
                     output += self._man_page(command["command"], option)
                     output += "\n"
 
-        output = re.sub(r"^\n\s*", "", output)
+        output = re.sub(r"\s{2,}", " ", output)
         logger.info(f"RAG: Returned {output}")
         return output
 

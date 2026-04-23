@@ -1,6 +1,7 @@
 from datetime import datetime
 import json
 import logging
+import pickle
 import re
 
 from openai import OpenAI
@@ -18,6 +19,7 @@ from utils import (
     USER_DIR,
     CURR_DIR,
     LOG_DIR,
+    extract_paths,
 )
 from tools import Tools
 
@@ -56,6 +58,9 @@ class Agent:
 
         self.tools = Tools(model)
 
+        with open("data/filesystem.pkl", "rb") as pklr:
+            self.filesystem = pickle.load(pklr)
+
         self.current_state = {
             "HOSTNAME": HOSTNAME,
             "USER": USER,
@@ -85,14 +90,110 @@ Dynamic environment variables in JSON (you must return all of them):
 "hostname": "{self.current_state["HOSTNAME"]}",
 "pwd": "{self.current_state["PWD"]}",
 "is_root": "{self.current_state["IS_ROOT"]}",
-"filesystem": {self.current_state["filesystem"]},
+"filesystem": {{}},
 "command_output": "<your_output_here>"
 }}
 """
 
-    def _chat_completion(self, prompt: str):
+    def _parse_path(self, path) -> dict:
+        logger.info(f"_parse_path: input path={path}")
+
+        # Handle absolute vs relative
+        if not path.startswith("/"):
+            path = self.current_state["PWD"] + "/" + path
+
+        # Normalize the path (handle . and ..)
+        raw_parts = [p for p in path.split("/") if p]
+        clean_parts = []
+        for part in raw_parts:
+            if part == "..":
+                if clean_parts:
+                    clean_parts.pop()
+            elif part == ".":
+                continue
+            else:
+                clean_parts.append(part)
+
+        logger.info(f"_parse_path: normalized path={path}, parts={clean_parts}")
+
+        # Traverse the filesystem
+        current: dict = self.filesystem["/"]
+        for part in clean_parts:
+            if part not in current.get("content", {}):
+                logger.warning(f"_parse_path: part not found={part}")
+                raise FileNotFoundError(f"No such file or directory: {part}")
+
+            current = current["content"][part]
+            logger.info(
+                f"_parse_path: traversed part={part}, type={current.get('type')}"
+            )
+
+            # Handle symlinks
+            if current.get("type") == "symlink":
+                target = current.get("target", {})
+                logger.info(f"_parse_path: following symlink to={target}")
+                current = self._parse_path(target)
+
+        logger.info(f"_parse_path: returning {current}")
+        return current
+
+    def _create_path(self, full_path: str, entry: dict) -> None:
+        """Create parent dirs and add entry."""
+        parts = [p for p in full_path.split("/") if p]
+        name = parts[-1]
+
+        current = self.filesystem["/"]
+        for part in parts[:-1]:
+            if "content" not in current:
+                current["content"] = {}
+            if part not in current["content"]:
+                current["content"][part] = {"type": "dir", "content": {}}
+            current = current["content"][part]
+
+        if "content" not in current:
+            current["content"] = {}
+        current["content"][name] = entry
+
+    def save_to_fs(self, fs_changes: dict) -> None:
+        """Save filesystem changes from LLM - merge with existing entries."""
+        if not fs_changes:
+            return
+
+        logger.info(f"save_to_fs: processing {len(fs_changes)} changes")
+
+        for full_path, entry in fs_changes.items():
+            if full_path == "/":
+                continue
+
+            parts = [p for p in full_path.split("/") if p]
+            if not parts:
+                continue
+
+            name = parts[-1]
+            parent_path = "/" + "/".join(parts[:-1])
+
+            try:
+                parent = self._parse_path(parent_path)
+                existing = parent["content"].get(name, {})
+
+                if existing:
+                    # Merge: existing + new (new overwrites)
+                    if "content" in existing and "content" in entry:
+                        existing["content"].update(entry.get("content", {}))
+                    merged = {**existing, **entry}
+                    parent["content"][name] = merged
+                    logger.info(f"save_to_fs: merged {full_path}")
+                else:
+                    parent["content"][name] = entry
+                    logger.info(f"save_to_fs: added {full_path}")
+            except FileNotFoundError:
+                self._create_path(full_path, entry)
+                logger.info(f"save_to_fs: created and saved {full_path}")
+
+    def chat_completion(self, prompt: str):
         max_retries = 3
         retry_info = ""
+        logger.info(f"LLM: prompt given {prompt}")
 
         for attempt in range(max_retries):
             full_prompt = f"{prompt}{retry_info}"
@@ -114,6 +215,8 @@ Dynamic environment variables in JSON (you must return all of them):
                 if not content:
                     raise ValueError("Empty response from LLM")
 
+                content = content.replace("```json", "", count=1).replace("```", "")
+
                 logger.info(
                     f"LLM: raw response ({len(content)} chars): {content[:1000]}"
                 )
@@ -125,7 +228,25 @@ Dynamic environment variables in JSON (you must return all of them):
                     completion.usage.total_tokens if completion.usage else 0
                 )
 
-                return OutputStructure(**data)
+                try:
+                    structured_output = OutputStructure(**data)
+                except Exception as e:
+                    logger.error(f"LLM error: {e}")
+                    return ""
+
+                logger.info(f"State update: {structured_output.model_dump()}")
+
+                self.current_state = {
+                    "USER": structured_output.user,
+                    "HOME": structured_output.home,
+                    "HOSTNAME": structured_output.hostname,
+                    "PWD": structured_output.pwd,
+                    "IS_ROOT": structured_output.is_root,
+                }
+
+                self.save_to_fs(structured_output.filesystem)
+
+                return structured_output.command_output
 
             except json.JSONDecodeError as e:
                 logger.warning(f"LLM: attempt {attempt + 1} failed (JSON): {e}")
@@ -178,9 +299,12 @@ Dynamic environment variables in JSON (you must return all of them):
         output = ""
         last_id = self.tools.set_history(query)
 
+        # Expand environment variables
         prompt = self.tools.handle_env_vars(query, self.current_state)
 
         parts = prompt.split(maxsplit=1)
+
+        # Get args of the last command
         self.current_state["_"] = parts[1] if len(parts) > 1 else parts[0]
 
         command = parts[0]
@@ -203,7 +327,6 @@ Dynamic environment variables in JSON (you must return all of them):
             logger.info(f"localhost: {output}")
         elif command == "history":
             output = self.tools.handle_history(prompt)
-            logger.info(f"history: {output}")
         elif command == "curl" or command == "wget":
             output = self.tools.handle_downloads(prompt)
         else:
@@ -212,28 +335,26 @@ Dynamic environment variables in JSON (you must return all of them):
                 output = error_msg
                 logger.info(f"Invalid command: {command}")
             else:
+                # Get info about the command
                 parsed: list = self.parse_command(query)
                 docs = self.tools.get_docs(parsed)
-                prompt = f"{self._format_state()}\n\n{docs}\n\nUser Query: {query}"
 
-                try:
-                    structured_output = self._chat_completion(prompt)
-                except Exception as e:
-                    logger.error(f"LLM error: {e}")
-                    return ""
+                # Get info about files/dirs in the command
+                paths = extract_paths(prompt)
+                dirs = "Directory listing for "
+                if not paths:
+                    path = self.current_state["PWD"]
+                    dirs += f"{path} {self._parse_path(path)['content']}\n"
+                else:
+                    for path in paths:
+                        dirs += f"{path}: {self._parse_path(path)['content']}\n"
 
-                logger.info(f"State update: {structured_output.model_dump()}")
+                logger.info(f"Directory listing: {dirs}")
+                prompt = (
+                    f"{self._format_state()}\n\n{docs}\n{dirs}\nUser Query: {query}"
+                )
 
-                self.current_state = {
-                    "USER": structured_output.user,
-                    "HOME": structured_output.home,
-                    "HOSTNAME": structured_output.hostname,
-                    "PWD": structured_output.pwd,
-                    "IS_ROOT": structured_output.is_root,
-                    "filesystem": structured_output.filesystem,
-                }
-
-                return structured_output.command_output
+                return self.chat_completion(prompt)
 
         self.shell_prompt = self._shell_prompt(self.current_state)
 
