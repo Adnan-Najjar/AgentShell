@@ -17,6 +17,7 @@ CURR_DIR = "/root"
 USER = "root"
 USER_DIR = "/root"
 IS_ROOT = True
+IP = "172.18.0.20"
 ENV_VARS = {
     "TERM": "linux",
     "HUSHLOGIN": "FALSE",
@@ -33,6 +34,7 @@ SYSTEM_PROMPT = f"""
 You are a fully configured Debian 7 system. For each command, return the output of that command with the given state/environment.
 these are the static environment variables:
 {ENV_VARS}
+Your IP is: {IP}
 
 Rules:
 - Do NOT give up.
@@ -51,6 +53,7 @@ Filesystem rules:
 - Maintain full hierarchical structure for each changed path.
 - If file: "type" should be "file" and the "content" is a string of the file content
 - If directory, "type" should be "dir" and the "content" is an object of the children added
+- Don't forget to put the output in command_output (the user can't see the filesystem value)
 
 Structure:
 "filesystem": {{
@@ -159,121 +162,59 @@ def run_cmd_ssh(cmd: str, port: str, hostname="localhost") -> str:
         return "error"
 
 
-def extract_paths(command: str) -> list[str]:
-    """
-    Extract file paths from a bash/linux command.
-    Returns a list of unique file paths found.
-    """
-    paths = []
-
-    # Try to tokenize with shlex (handles quotes properly)
-    try:
-        tokens = shlex.split(command)
-    except ValueError:
-        tokens = command.split()
-
-    # Skip the command itself (first token) and any flags
-    for token in tokens[1:]:
-        # Skip flags/options
-        if token.startswith("-"):
-            continue
-
-        # Match absolute paths (start with /)
-        if re.match(r"^/[\w./\-_~]+", token):
-            paths.append(token)
-            continue
-
-        # Match relative paths (./path, ../path, or plain file.ext or dir/file)
-        if re.match(r"^\.{1,2}/|^[\w][\w.\-_]*/|^[\w][\w.\-_]*\.\w+$", token):
-            paths.append(token)
-            continue
-
-        # Match home-relative paths (~/)
-        if token.startswith("~/"):
-            paths.append(token)
-            continue
-
-    # Also scan for inline paths not captured by tokenization
-    # e.g., redirects like >output.txt, 2>/dev/null
-    redirect_paths = re.findall(
-        r"[<>|&]\s*(/[\w./\-_~]+|~/[\w./\-_~]+|\.{1,2}/[\w./\-_~]+)", command
-    )
-    paths.extend(redirect_paths)
-
-    # Deduplicate while preserving order
-    seen = set()
-    result = []
-    for p in paths:
-        if p not in seen:
-            seen.add(p)
-            result.append(p)
-
-    return result
-
-
-def parse_shell(query: str):
+def parse_shell(query: str) -> list[list[str]]:
     """
     Parses a shell-like command string into a sequential list of commands and operators.
     Each command is a list of tokens; operators (|, ||, &&, ;) are preserved as strings.
     """
 
-    lexer = shlex.shlex(query, posix=True)
-    lexer.whitespace_split = True
-    lexer.commenters = ""
+    try:
+        # Pre-process: add spaces around operators if missing
+        for op in ["||", "&&", "|", ";"]:
+            query = query.replace(op, f" {op} ")
 
-    result = []
-    current = []
+        lexer = shlex.shlex(query, posix=True)
+        lexer.whitespace_split = True
+        lexer.commenters = ""
 
-    for token in lexer:
-        if token in {"|", "||", "&&", ";"}:
-            if current:
-                result.append(current)
-                current = []
-            result.append(token)  # operator
-        else:
-            current.append(token)  # command
+        result = []
+        current = []
 
-    if current:
-        result.append(current)
+        for token in lexer:
+            if token in {"|", "||", "&&", ";"}:
+                if current:
+                    result.append(current)
+                    current = []
+            else:
+                current.append(token)  # command
+
+        if current:
+            result.append(current)
+    except:
+        return [[]]
 
     return result
 
 
-def extract_command_flags(query: str) -> dict:
+def extract_command_flags(args: list) -> dict:
     """
-    Extract the command and its flags from a single command string
-    Returns a dict with the command and flags
+    Extract flags from a list of args
+    Returns a dict with empty command (to be set by caller) and flags split
     """
 
-    if not query.strip():
-        return {}
+    if not args:
+        return {"command": "", "flags": []}
 
-    try:
-        tokens = shlex.split(query)
-    except ValueError:
-        # Handle cases like: unclosed quotes
-        # Fallback: take everything before the first unmatched quote
-        try:
-            partial = query.split('"')[0].split("'")[0]
-            tokens = shlex.split(partial)
-        except Exception:
-            return {}
-
-    if not tokens:
-        return {}
-
-    cmd_name = tokens[0]
     flags = []
 
-    for token in tokens[1:]:
+    for token in args:
         if token.startswith("--"):
             flags.append(token)
         elif token.startswith("-") and len(token) > 1:
-            # split combined flags like -la -> -l, -a
             flags.extend([f"-{c}" for c in token[1:]])
 
     return {
-        "command": cmd_name,
+        "command": "",
         "flags": flags,
     }
 

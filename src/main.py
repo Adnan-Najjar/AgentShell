@@ -2,28 +2,26 @@ from datetime import datetime
 import json
 import logging
 import pickle
-import shlex
 
 from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
+from tools import Tools
 from utils import (
+    API_KEY,
+    BASE_URL,
+    CURR_DIR,
+    HOSTNAME,
+    IS_ROOT,
+    LOG_DIR,
     MODEL,
     MODEL_NAME,
-    BASE_URL,
-    API_KEY,
     SYSTEM_PROMPT,
-    HOSTNAME,
     USER,
-    IS_ROOT,
     USER_DIR,
-    CURR_DIR,
-    LOG_DIR,
-    extract_paths,
-    parse_shell,
     extract_command_flags,
+    parse_shell,
 )
-from tools import Tools
 
 logger = logging.getLogger("agent")
 logger.setLevel(logging.INFO)
@@ -97,63 +95,29 @@ Dynamic environment variables in JSON (you must return all of them):
 }}
 """
 
-    def _parse_path(self, path) -> dict:
-        logger.info(f"_parse_path: input path={path}")
-
-        # Handle absolute vs relative
-        if not path.startswith("/"):
-            path = self.current_state["PWD"] + "/" + path
-
-        # Normalize the path (handle . and ..)
-        raw_parts = [p for p in path.split("/") if p]
-        clean_parts = []
-        for part in raw_parts:
-            if part == "..":
-                if clean_parts:
-                    clean_parts.pop()
-            elif part == ".":
-                continue
-            else:
-                clean_parts.append(part)
-
-        logger.info(f"_parse_path: normalized path={path}, parts={clean_parts}")
-
-        # Traverse the filesystem
-        current: dict = self.filesystem["/"]
-        for part in clean_parts:
-            if part not in current.get("content", {}):
-                logger.warning(f"_parse_path: part not found={part}")
-                raise FileNotFoundError(f"No such file or directory: {part}")
-
-            current = current["content"][part]
-            logger.info(
-                f"_parse_path: traversed part={part}, type={current.get('type')}"
-            )
-
-            # Handle symlinks
-            if current.get("type") == "symlink":
-                target = current.get("target", {})
-                logger.info(f"_parse_path: following symlink to={target}")
-                current = self._parse_path(target)
-
-        logger.info(f"_parse_path: returning {current}")
-        return current
-
     def _create_path(self, full_path: str, entry: dict) -> None:
         """Create parent dirs and add entry."""
         parts = [p for p in full_path.split("/") if p]
         name = parts[-1]
+
+        now = datetime.now()
+        modified = now.strftime("%b %d %H:%M")
 
         current = self.filesystem["/"]
         for part in parts[:-1]:
             if "content" not in current:
                 current["content"] = {}
             if part not in current["content"]:
-                current["content"][part] = {"type": "dir", "content": {}}
+                current["content"][part] = {
+                    "type": "dir",
+                    "content": {},
+                    "modified": modified,
+                }
             current = current["content"][part]
 
         if "content" not in current:
             current["content"] = {}
+        entry["modified"] = modified
         current["content"][name] = entry
 
     def save_to_fs(self, fs_changes: dict) -> None:
@@ -161,6 +125,8 @@ Dynamic environment variables in JSON (you must return all of them):
         if not fs_changes:
             return
 
+        now = datetime.now()
+        modified = now.strftime("%b %d %H:%M")
         logger.info(f"save_to_fs: processing {len(fs_changes)} changes")
 
         for full_path, entry in fs_changes.items():
@@ -175,7 +141,7 @@ Dynamic environment variables in JSON (you must return all of them):
             parent_path = "/" + "/".join(parts[:-1])
 
             try:
-                parent = self._parse_path(parent_path)
+                parent = self.tools.parse_path(self.filesystem, parent_path)
                 existing = parent["content"].get(name, {})
 
                 if existing:
@@ -184,9 +150,11 @@ Dynamic environment variables in JSON (you must return all of them):
                         existing["content"].update(entry.get("content", {}))
                     merged = {**existing, **entry}
                     parent["content"][name] = merged
+                    parent["content"][name]["modified"] = modified
                     logger.info(f"save_to_fs: merged {full_path}")
                 else:
                     parent["content"][name] = entry
+                    parent["content"][name]["modified"] = modified
                     logger.info(f"save_to_fs: added {full_path}")
             except FileNotFoundError:
                 self._create_path(full_path, entry)
@@ -262,72 +230,116 @@ Dynamic environment variables in JSON (you must return all of them):
 
         raise Exception(f"LLM failed after {max_retries} retries")
 
+    def handle_command(self, command: str, args: list) -> str:
+        valid, error_msg = self.tools.validate_command(command)
+        if not valid:
+            logger.info(f"Invalid command: {command} with args {args}")
+            return error_msg
+
+        match command:
+            case "cd":
+                return self.tools.handle_cd(args, self.current_state, self.filesystem)
+
+            case "export":
+                return self.tools.handle_export(args, self.current_state)
+
+            case "env":
+                return self.tools.handle_env(args, self.current_state)
+
+            case "apt" | "apt-get":
+                return self.tools.handle_apt(args)
+
+            case "pwd":
+                return self.current_state["PWD"]
+
+            case "whoami":
+                return self.current_state["USER"]
+
+            case "hostname":
+                return self.current_state["HOSTNAME"]
+
+            case "history":
+                return self.tools.handle_history(args)
+
+            case "curl":
+                out = self.tools.handle_curl(args)
+                if out:
+                    return out
+                else:
+                    return ""
+
+            case "wget":
+                out = self.tools.handle_wget(args)
+                if out:
+                    return out
+                else:
+                    return ""
+
+            case _:
+                return ""
+
     def chat(self, query: str) -> str:
         logger.info(f"Query: {query}")
 
         output = ""
         last_id = self.tools.set_history(query)
 
-        # Expand environment variables
-        prompt = self.tools.handle_env_vars(query, self.current_state)
-
-        # TODO: use parse_shell somehow
-        try:
-            tokens = shlex.split(prompt)
-            command = tokens[0] if tokens else ""
-        except:
+        parsed_cmd: list[list[str]] = parse_shell(query)
+        if not parsed_cmd:
             return "syntax error"
 
         # Get args of the last command
-        self.current_state["_"] = " ".join(tokens[1:]) if len(tokens) > 1 else command
+        self.current_state["_"] = parsed_cmd[-1][-1]
 
-        if command == "cd":
-            output = self.tools.handle_cd(prompt, self.current_state)
-        elif command == "export":
-            output = self.tools.handle_export(prompt, self.current_state)
-        elif command == "env":
-            output = self.tools.handle_env(prompt, self.current_state)
-        elif command == "apt" or command == "apt-get":
-            output = self.tools.handle_apt(prompt)
-        elif command == "pwd":
-            output = self.current_state["PWD"]
-            logger.info(f"pwd: {output}")
-        elif command == "whoami":
-            output = self.current_state["USER"]
-            logger.info(f"whoami: {output}")
-        elif command == "hostname":
-            output = self.current_state["HOSTNAME"]
-            logger.info(f"localhost: {output}")
-        elif command == "history":
-            output = self.tools.handle_history(prompt)
-        elif command == "curl" or command == "wget":
-            output = self.tools.handle_downloads(prompt)
+        # If it was only one command handle it
+        handle_command_output = self.handle_command(parsed_cmd[0][0], parsed_cmd[0][1:])
+        if len(parsed_cmd) < 2 and handle_command_output:
+            return handle_command_output
+
+        # if it was nested commands
+        paths = set()
+        cmd_flags = {}
+        cmd_outputs = ""
+        for token in parsed_cmd:
+            command = token[0]
+            args_raw = token[1:]
+
+            # Expand environment variables
+            args = self.tools.handle_env_vars(args_raw, self.current_state)
+
+            # Extract paths from args
+            for arg in args:
+                if arg.startswith("/") or arg.startswith("./") or arg.startswith("../"):
+                    paths.add(arg)
+                elif arg and "/" in arg and not arg.startswith("-"):
+                    paths.add(arg)
+
+            # Extract command and flags
+            cmd_flags = extract_command_flags(args)
+            cmd_flags["command"] = command
+
+            # ====  handled manually ====
+            command_output = self.handle_command(command, args)
+            if command_output:
+                cmd_outputs += f"Output of {' '.join(token)} is {command_output}"
+
+        # ====  handled by AI   ====
+        # Get info about the command
+        docs = self.tools.get_docs(cmd_flags)
+
+        # Get info about files/dirs in the command
+        dirs = "Directory listing for "
+        if not paths:
+            path = self.current_state["PWD"]
+            dirs += f"{path} {self.tools.parse_path(self.filesystem, path).get('content', {})}\n"
         else:
-            valid, error_msg = self.tools.validate_command(command)
-            if not valid:
-                output = error_msg
-                logger.info(f"Invalid command: {command}")
-            else:
-                # Get info about the command
-                parsed: dict = extract_command_flags(query)
-                docs = self.tools.get_docs(parsed)
+            for path in paths:
+                dirs += f"{path}: {self.tools.parse_path(self.filesystem, path).get('content', {})}\n"
 
-                # Get info about files/dirs in the command
-                paths = extract_paths(prompt)
-                dirs = "Directory listing for "
-                if not paths:
-                    path = self.current_state["PWD"]
-                    dirs += f"{path} {self._parse_path(path)['content']}\n"
-                else:
-                    for path in paths:
-                        dirs += f"{path}: {self._parse_path(path)['content']}\n"
+        logger.info(f"Directory listing: {dirs}")
+        prompt = f"{self._format_state()}\n\n{docs}\n{dirs}\n{cmd_outputs}\nUser Query: {query}"
 
-                logger.info(f"Directory listing: {dirs}")
-                prompt = (
-                    f"{self._format_state()}\n\n{docs}\n{dirs}\nUser Query: {query}"
-                )
-
-                return self.chat_completion(prompt)
+        output = self.chat_completion(prompt)
 
         self.shell_prompt = self._shell_prompt(self.current_state)
 

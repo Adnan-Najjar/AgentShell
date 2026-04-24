@@ -4,11 +4,11 @@ Believability Testing Module
 Tests scenario outputs against regex rules to determine believability score.
 """
 
+from datetime import datetime
 import json
 import logging
-import re
 import os
-from datetime import datetime
+import re
 from typing import List, Optional
 
 import matplotlib

@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 
 import argparse
+import json
 import os
 import sys
-import json
+
+from believability import BelievabilityChecker, CommandsChecker
+from main import Agent
+from utils import COMMANDS, MODEL_NAME, OUTPUT_DIR, SCENARIOS, TACTICS
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils import SCENARIOS, OUTPUT_DIR, COMMANDS, TACTICS, MODEL_NAME
-from believability import BelievabilityChecker, CommandsChecker
-from main import Agent
+
 
 
 def generate_table_markdown(rows, methods, first_col_name="Category"):

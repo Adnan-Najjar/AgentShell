@@ -1,11 +1,17 @@
 from datetime import datetime
+import ipaddress
 import logging
 import os
+import random
 import re
 import shlex
 import shutil
+import socket
 import sqlite3
 import subprocess
+from urllib.parse import urljoin, urlparse
+
+import requests
 
 from utils import ENV_VARS, MODEL_NAME, OUTPUT_DIR
 
@@ -185,32 +191,30 @@ class Tools:
         logger.info(f"RAG: Returned {output}")
         return output
 
-    def handle_env(self, command: str, current_state: dict) -> str:
-        logger.info(f"env: {command}")
-        parts = command.split(maxsplit=1)
+    def handle_env(self, args: list, current_state: dict) -> str:
+        logger.info(f"env: {args}")
 
         all_vars = dict(ENV_VARS) | current_state
         not_vars = ["0", "#", "-", "?", "IS_ROOT", "filesystem"]
 
-        if len(parts) == 1:
+        if not args:
             filtered_vars = {k: v for k, v in all_vars.items() if k not in not_vars}
             return "\n".join(f"{k}={v}" for k, v in filtered_vars.items())
 
-        arg = parts[1].strip()
+        arg = args[0]
         if "=" in arg:
             return arg
         else:
             return all_vars.get(arg, "")
 
-    def handle_export(self, command: str, current_state: dict) -> str:
-        logger.info(f"export: {command}")
-        parts = command.split(maxsplit=1)
-        var_val = parts[1].split("=")
+    def handle_export(self, args: list, current_state: dict) -> str:
+        logger.info(f"export: {args}")
+        var_val = args[0].split("=")
         current_state[var_val[0]] = var_val[1]
         return ""
 
-    def handle_apt(self, command: str) -> str:
-        logger.info(f"apt: {command}")
+    def handle_apt(self, args: list) -> str:
+        logger.info(f"apt: {args}")
         help_menu = """
 apt 0.9.7.9 for amd64 compiled on Oct 17 2014 09:15:56
 Usage: apt-get [options] command
@@ -303,36 +307,33 @@ E: Some index files failed to download. They have been ignored, or old ones used
             "changelog",
         ]
 
-        parts = command.split()
-        if len(parts) == 1:
+        if not args:
             return help_menu
-        elif "upgrade" in parts:
+        elif "upgrade" in args:
             return upgrade
-        elif "update" in parts:
+        elif "update" in args:
             return update
         else:
             for pkg_cmd in package_commands:
-                if pkg_cmd in parts:
+                if pkg_cmd in args:
                     try:
-                        idx = parts.index(pkg_cmd)
-                        package = parts[idx + 1]
+                        idx = args.index(pkg_cmd)
+                        package = args[idx + 1]
                         return f"E: Unable to locate package {package}"
                     except:
                         continue
             else:
                 return help_menu
 
-    def handle_history(self, command: str) -> str:
-        logger.info(f"history: {command}")
-        tokens = shlex.split(command)
-        if len(tokens) > 1 and tokens[1] == "-c":
+    def handle_history(self, args: list) -> str:
+        logger.info(f"history: {args}")
+        if len(args) > 1 and args[1] == "-c":
             self.delete_history()
             return ""
         return self.get_history()
 
-    def handle_cd(self, command: str, current_state: dict) -> str:
-        tokens = shlex.split(command)
-        target = tokens[1] if len(tokens) > 1 else "~"
+    def handle_cd(self, args: list, current_state: dict, filesystem: dict) -> str:
+        target = args[1] if len(args) > 1 else "~"
 
         current = current_state["PWD"]
         user_home = current_state["HOME"]
@@ -342,70 +343,302 @@ E: Some index files failed to download. They have been ignored, or old ones used
         elif target == "-":
             new_path = self._prev_dir if self._prev_dir else user_home
         else:
-            raw_path = os.path.join(current, target)
-            new_path = os.path.normpath(raw_path)
+            if os.path.isabs(target):
+                full_path = target
+            else:
+                full_path = os.path.join(current, target)
+            new_path = os.path.normpath(full_path)
+
+            # Validate path exists in filesystem
+            try:
+                self.parse_path(filesystem, new_path)
+            except FileNotFoundError:
+                return f"cd: {target}: No such file or directory"
 
         self._prev_dir = current
         current_state["PWD"] = new_path
         logger.info(f"cd: {current} -> {new_path}")
         return ""
 
-    def handle_env_vars(self, query: str, current_state: dict) -> str:
-        logger.info(f"env_vars: {query}")
+    def parse_path(self, filesystem: dict, path: str) -> dict:
+        """Validate path exists in filesystem."""
+        if path == "/":
+            return filesystem["/"]
+
+        parts = [p for p in path.split("/") if p]
+        current = filesystem["/"]
+
+        for part in parts:
+            if current.get("type") == "symlink":
+                target = current.get("target", "/")
+                current = self.parse_path(filesystem, target)
+
+            content = current.get("content", {})
+            if part not in content:
+                return {}
+            current = content[part]
+
+        return current
+
+    def handle_env_vars(self, args: list, current_state: dict) -> list:
+        """
+        Expand environment variables in args.
+        Works like bash - $VAR can be anywhere in the argument.
+        Unrecognized vars are kept as-is.
+        Returns a list of expanded args.
+        """
+        logger.info(f"env_vars: {args}")
         all_vars = ENV_VARS | current_state
-        return re.sub(r"\$(\w+)", lambda m: all_vars.get(m.group(1), m.group(0)), query)
 
-    def handle_downloads(self, command: str) -> str:
-        logger.info(f"downloads: {command}")
+        expanded = []
+        for arg in args:
+            # Replace $VAR patterns anywhere in string
+            new_arg = arg
+            for var_name, var_value in all_vars.items():
+                if var_name in ("filesystem", "IS_ROOT"):
+                    continue
+                new_arg = new_arg.replace(f"${var_name}", var_value)
+            expanded.append(new_arg)
 
-        tokens = shlex.split(command)
-        cmd = tokens[0]
-        args = " ".join(tokens[1:]) if len(tokens) > 1 else ""
+        return expanded
 
-        downloads = f"{OUTPUT_DIR}/downloads"
-        os.makedirs(downloads, exist_ok=True)
+    def _is_blocked_host(self, arg) -> bool:
+        try:
+            parsed = urlparse(arg)
+            host = parsed.hostname or arg
 
-        url_match = re.search(r"https?://([^/]+)", args)
-        domain = url_match.group(1) if url_match else "unknown"
-        logger.info(f"downloads: extracted domain={domain}")
+            # Resolve hostname to all IPs
+            infos = socket.getaddrinfo(host, None)
 
-        file_match = re.search(r"-[Oo]\s*([^ ]*)", args)
-        if file_match and file_match.group(1) != "-":
-            filename = os.path.basename(file_match.group(1)).strip()
-        else:
-            filename = "file.txt"
-        logger.info(f"downloads: filename={filename}")
+            for info in infos:
+                ip = info[4][0]
+                ip_obj = ipaddress.ip_address(ip)
+
+                if (
+                    ip_obj.is_loopback
+                    or ip_obj.is_private
+                    or ip_obj.is_link_local
+                    or ip_obj.is_reserved
+                ):
+                    return True
+
+            return False
+        except Exception:
+            # If resolution fails, safer to block
+            return True
+
+    def handle_downloads(self, url: str, output_path: str) -> dict | None:
+        parsed = urlparse(url)
+
+        if parsed.scheme not in ("http", "https"):
+            return None
+
+        if not parsed.hostname or self._is_blocked_host(parsed.hostname):
+            return None
+
+        try:
+            current_url = url
+
+            for _ in range(3):  # redirect limit
+                response = requests.get(
+                    current_url,
+                    allow_redirects=False,
+                    timeout=10,
+                )
+
+                # Handle redirects manually
+                if 300 <= response.status_code < 400:
+                    location = response.headers.get("Location")
+                    if not location:
+                        return None
+
+                    next_url = urljoin(current_url, location)
+                    parsed_next = urlparse(next_url)
+
+                    if not parsed_next.hostname or self._is_blocked_host(
+                        parsed_next.hostname
+                    ):
+                        return None
+
+                    current_url = next_url
+                    continue
+
+                if response.status_code != 200:
+                    return None
+
+                content = response.content
+
+                with open(output_path, "wb") as f:
+                    f.write(content)
+
+                return {
+                    "url": current_url,
+                    "status": response.status_code,
+                    "size": len(content),
+                }
+
+            return None
+
+        except Exception:
+            return None
+
+    def handle_wget(self, args: list) -> str:
+        url = None
+        output_file = None
+        stdout = False
+
+        i = 0
+        while i < len(args):
+            arg = args[i]
+
+            if arg.startswith(("http://", "https://", "ftp://")):
+                url = arg
+            elif not arg.startswith("-") and "." in arg:
+                url = "http://" + arg
+            elif arg == "-O":
+                if i + 1 < len(args):
+                    if args[i + 1] == "-":
+                        stdout = True
+                        output_file = None
+                    else:
+                        stdout = False
+                        output_file = args[i + 1]
+                    i += 1
+            elif arg == "-o":
+                if i + 1 < len(args):
+                    stdout = False
+                    output_file = args[i + 1]
+                    i += 1
+            elif arg.startswith(("-O=", "-o=")):
+                stdout = False
+                output_file = arg.split("=", 1)[1]
+            i += 1
+
+        if not url:
+            return "wget: missing URL\n"
+
+        parsed = urlparse(url)
+        domain = parsed.hostname or "unknown"
+
+        filename = os.path.basename(output_file) if output_file else "index.html"
+
+        downloads_dir = os.path.join(OUTPUT_DIR, "downloads")
+        os.makedirs(downloads_dir, exist_ok=True)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = f"{domain}_{timestamp}_{filename}"
-        output_path = f"{downloads}/{output_file}"
+        output_path = os.path.join(downloads_dir, f"{domain}_{timestamp}_{filename}")
 
-        if cmd == "curl":
-            full_command = f"{cmd} -o {output_path} {args}"
-        else:
-            full_command = f"{cmd} {args} -O {output_path}"
-        logger.info(f"downloads: full_command={full_command}")
+        start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        result = subprocess.run(
-            shlex.split(full_command),
-            capture_output=True,
-            text=True,
+        result = self.handle_downloads(url, output_path)
+
+        if not result:
+            return f"--{start_time}--  {url}\nERROR: download failed\n"
+
+        size = result["size"]
+
+        # Fake resolving IP
+        try:
+            ip = socket.gethostbyname(domain)
+        except Exception:
+            ip = "0.0.0.0"
+
+        # Simulated progress
+        progress = f"{filename:<20} 100%[===================>] {size} bytes"
+
+        response = (
+            f"--{start_time}--  {url}\n"
+            f"Resolving {domain}... {ip}\n"
+            f"Connecting to {domain}... connected.\n"
+            f"HTTP request sent, awaiting response... {result['status']} OK\n"
+            f"Length: {size}\n"
+            f"Saving to: '{filename}'\n\n"
+            f"{progress}\n\n"
+            f"{start_time} - '{filename}' saved [{size}/{size}]\n"
         )
 
-        output = result.stdout or result.stderr
-        output = output.replace("\nWarning: Got more output options than URLs\n", "")
-        output = output.replace(output_path, filename)
+        # If stdout (-O -), include content
+        if stdout:
+            try:
+                with open(output_path, "r") as f:
+                    content = f.read()
+                os.remove(output_path)
+                return content + response
+            except:
+                return response
 
-        logger.info(f"downloads: returning stdout (no -o/-O flag)")
-        if filename == "file.txt":
-            with open(output_path, "r") as file:
-                outfile = file.read()
-            if cmd == "curl":
-                return f"{output}\n{outfile}"
-            else:
-                output = output.replace(f"'{filename}'\n", "'STDOUT'\n")
-                output = output.replace(f"{filename} ", outfile)
-                output = output.replace(f"'{filename}' saved", "written to stdout")
-                return output
-        else:
-            return output
+        return response
+
+    def handle_curl(self, args: list) -> str:
+        url = None
+        output_file = None
+        stdout = True  # curl defaults to stdout
+
+        i = 0
+        while i < len(args):
+            arg = args[i]
+
+            if arg.startswith(("http://", "https://", "ftp://")):
+                url = arg
+            elif not arg.startswith("-") and "." in arg:
+                url = "http://" + arg
+            elif arg == "-o":
+                if i + 1 < len(args):
+                    if args[i + 1] == "-":
+                        stdout = True
+                        output_file = None
+                    else:
+                        stdout = False
+                        output_file = args[i + 1]
+                    i += 1
+            elif arg == "-O":
+                if i + 1 < len(args):
+                    if args[i + 1] == "-":
+                        stdout = True
+                    else:
+                        stdout = False
+                        output_file = args[i + 1]
+                    i += 1
+            elif arg.startswith(("-o=", "-O=")):
+                stdout = False
+                output_file = arg.split("=", 1)[1]
+            i += 1
+
+        if not url:
+            return "curl: (2) no URL specified\n"
+
+        filename = os.path.basename(output_file) if output_file else "output"
+
+        downloads_dir = os.path.join(OUTPUT_DIR, "downloads")
+        os.makedirs(downloads_dir, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = os.path.join(downloads_dir, f"{timestamp}_{filename}")
+
+        result = self.handle_downloads(url, output_path)
+
+        if not result:
+            return "curl: (7) Failed to connect\n"
+
+        size = result["size"]
+
+        # Fake speed
+        speed = random.randint(5000, 50000)
+
+        progress = (
+            "% Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\n"
+            "                                 Dload  Upload   Total   Spent   Left  Speed\n\n"
+            f"100 {size:6}  100 {size:6}    0     0  {speed:6}      0 --:--:-- --:--:-- --:--:-- {speed}\n"
+        )
+
+        # If stdout or no output file, include content
+        if stdout:
+            try:
+                with open(output_path, "r") as f:
+                    content = f.read()
+                os.remove(output_path)
+                return content + progress
+            except:
+                return progress
+
+        return progress
