@@ -20,7 +20,7 @@ logger = logging.getLogger("agent")
 
 class Tools:
     def __init__(self, thread_id: str):
-        self.id = thread_id
+        self.id = thread_id.replace("-", "_")
         self._prev_dir = None
         os.makedirs(f"{OUTPUT_DIR}/{MODEL_NAME}/history", exist_ok=True)
 

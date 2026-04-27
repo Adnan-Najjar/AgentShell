@@ -5,7 +5,9 @@ services:
     ports:
       - "2222:22"
     environment:
-      - BASE_URL=http://host.docker.internal:11434/v1
+      - MODEL=${MODEL}
+      - BASE_URL=${BASE_URL}
+      - API_KEY=${API_KEY}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:

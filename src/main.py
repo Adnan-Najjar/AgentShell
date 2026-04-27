@@ -3,7 +3,7 @@ import json
 import logging
 import pickle
 
-from openai import OpenAI
+from openai import OpenAI, APITimeoutError
 from pydantic import BaseModel, ValidationError
 
 from tools import Tools
@@ -19,7 +19,12 @@ from utils import (
     SYSTEM_PROMPT,
     USER,
     USER_DIR,
+    TIMEOUT,
+    MAX_SCHEMA_RETRIES,
+    MAX_VALIDATION_RETRIES,
     extract_command_flags,
+    extract_json,
+    fix_json,
     parse_shell,
 )
 
@@ -54,7 +59,12 @@ class Agent:
     def __init__(self, model: str = MODEL_NAME) -> None:
         logger.info(f"Initializing Agent with {model}")
 
-        self.client = OpenAI(base_url=BASE_URL, api_key=API_KEY, timeout=None)
+        self.client = OpenAI(
+            base_url=BASE_URL,
+            api_key=API_KEY,
+            timeout=TIMEOUT,
+            max_retries=MAX_SCHEMA_RETRIES,
+        )
 
         self.tools = Tools(model)
 
@@ -142,17 +152,32 @@ Dynamic environment variables in JSON (you must return all of them):
 
             try:
                 parent = self.tools.parse_path(self.filesystem, parent_path)
-                existing = parent["content"].get(name, {})
+                parent_content = parent.get("content")
+                if not isinstance(parent_content, dict):
+                    parent_content = {}
+                existing = parent_content.get(name, {})
 
                 if existing:
                     # Merge: existing + new (new overwrites)
                     if "content" in existing and "content" in entry:
-                        existing["content"].update(entry.get("content", {}))
+                        if isinstance(existing.get("content"), dict) and isinstance(
+                            entry.get("content"), dict
+                        ):
+                            existing["content"].update(entry.get("content", {}))
                     merged = {**existing, **entry}
+                    if "content" not in parent:
+                        parent["content"] = {}
                     parent["content"][name] = merged
                     parent["content"][name]["modified"] = modified
                     logger.info(f"save_to_fs: merged {full_path}")
                 else:
+                    entry_type = entry.get("type", "file")
+                    if "content" not in parent:
+                        parent["content"] = {}
+                    if entry_type == "dir":
+                        entry["content"] = {}
+                    else:
+                        entry["content"] = entry.get("content", "")
                     parent["content"][name] = entry
                     parent["content"][name]["modified"] = modified
                     logger.info(f"save_to_fs: added {full_path}")
@@ -161,80 +186,102 @@ Dynamic environment variables in JSON (you must return all of them):
                 logger.info(f"save_to_fs: created and saved {full_path}")
 
     def chat_completion(self, prompt: str):
-        max_retries = 3
         retry_info = ""
+        content = ""
         logger.info(f"LLM: prompt given {prompt}")
 
-        for attempt in range(max_retries):
-            full_prompt = f"{prompt}{retry_info}"
-            logger.info(
-                f"LLM: attempt {attempt + 1}/{max_retries}, prompt length: {len(full_prompt)}"
-            )
-
-            try:
-                completion = self.client.chat.completions.create(
-                    model=MODEL,
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": full_prompt},
-                    ],
-                    temperature=0.1,
-                )
-
-                content = completion.choices[0].message.content
-                if not content:
-                    raise ValueError("Empty response from LLM")
-
-                content = content.replace("```json", "", count=1).replace("```", "")
-
+        try:
+            for attempt in range(MAX_VALIDATION_RETRIES):
+                full_prompt = f"{prompt}{retry_info}"
                 logger.info(
-                    f"LLM: raw response ({len(content)} chars): {content[:1000]}"
-                )
-
-                data = json.loads(content)
-                logger.info(f"LLM: parsed JSON: {json.dumps(data)[:1000]}")
-
-                self.total_tokens = (
-                    completion.usage.total_tokens if completion.usage else 0
+                    f"LLM: attempt {attempt + 1}/{MAX_VALIDATION_RETRIES}, prompt length: {len(full_prompt)}"
                 )
 
                 try:
-                    structured_output = OutputStructure(**data)
-                except Exception as e:
-                    logger.error(f"LLM error: {e}")
-                    return ""
+                    completion = self.client.chat.completions.create(
+                        model=MODEL,
+                        messages=[
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": full_prompt},
+                        ],
+                        temperature=0.1,
+                    )
 
-                logger.info(f"State update: {structured_output.model_dump()}")
+                    content = completion.choices[0].message.content
+                    if not content:
+                        return ""
 
-                self.current_state = {
-                    "USER": structured_output.user,
-                    "HOME": structured_output.home,
-                    "HOSTNAME": structured_output.hostname,
-                    "PWD": structured_output.pwd,
-                    "IS_ROOT": structured_output.is_root,
-                }
+                    content = content.replace("```json", "", count=1).replace("```", "")
 
-                self.save_to_fs(structured_output.filesystem)
+                    logger.info(f"LLM: raw response ({len(content)} chars): {content}")
 
-                return structured_output.command_output
+                    try:
+                        data = json.loads(content)
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"JSON decode failed: {e}, trying fix_json...")
+                        try:
+                            fixed = fix_json(content)
+                            data = json.loads(fixed)
+                        except json.JSONDecodeError as e2:
+                            logger.warning(
+                                f"fix_json failed: {e2}, trying extract_json..."
+                            )
+                            fixed = extract_json(content)
+                            data = json.loads(fixed)
 
-            except json.JSONDecodeError as e:
-                logger.warning(f"LLM: attempt {attempt + 1} failed (JSON): {e}")
-                retry_info = (
-                    f"\n\nInvalid JSON: {e}. ONLY return valid JSON with all fields."
-                )
+                    logger.info(f"LLM: parsed JSON: {json.dumps(data)[:1000]}")
 
-            except ValidationError as e:
-                logger.warning(f"LLM: attempt {attempt + 1} failed (Pydantic): {e}")
-                retry_info = f"\n\nMissing/invalid fields: {e}. Provide: user, home, hostname, pwd, is_root, filesystem, command_output."
+                    self.total_tokens = (
+                        completion.usage.total_tokens if completion.usage else 0
+                    )
 
-        raise Exception(f"LLM failed after {max_retries} retries")
+                    try:
+                        structured_output = OutputStructure(**data)
+                    except Exception as e:
+                        logger.error(f"LLM error: {e}")
+                        return ""
+
+                    logger.info(f"State update: {structured_output.model_dump()}")
+
+                    self.current_state = {
+                        "USER": structured_output.user,
+                        "HOME": structured_output.home,
+                        "HOSTNAME": structured_output.hostname,
+                        "PWD": structured_output.pwd,
+                        "IS_ROOT": structured_output.is_root,
+                    }
+
+                    self.save_to_fs(structured_output.filesystem)
+
+                    return structured_output.command_output
+
+                except json.JSONDecodeError as e:
+                    logger.warning(f"LLM: attempt {attempt + 1} failed (JSON): {e}")
+                    if content:
+                        try:
+                            try:
+                                fixed = fix_json(content)
+                                data = json.loads(fixed)
+                            except json.JSONDecodeError:
+                                fixed = extract_json(content)
+                                data = json.loads(fixed)
+                            structured_output = OutputStructure(**data)
+                        except Exception as fallback_error:
+                            logger.warning(f"Fallback also failed: {fallback_error}")
+                            retry_info = f"\n\nInvalid JSON: {e}. ONLY return valid JSON with all fields."
+
+                except ValidationError as e:
+                    logger.warning(f"LLM: attempt {attempt + 1} failed (Pydantic): {e}")
+                    retry_info = f"\n\nMissing/invalid fields: {e}. Provide: user, home, hostname, pwd, is_root, filesystem, command_output."
+
+                except APITimeoutError as e:
+                    logger.warning(f"LLM: Timed Out")
+                    retry_info = f""
+            return ""
+        except:
+            return ""
 
     def handle_command(self, command: str, args: list) -> str:
-        valid, error_msg = self.tools.validate_command(command)
-        if not valid:
-            logger.info(f"Invalid command: {command} with args {args}")
-            return error_msg
 
         match command:
             case "cd":
@@ -276,6 +323,10 @@ Dynamic environment variables in JSON (you must return all of them):
                     return ""
 
             case _:
+                valid, error_msg = self.tools.validate_command(command)
+                if not valid:
+                    logger.info(f"Invalid command: {command} with args {args}")
+                    return error_msg
                 return ""
 
     def chat(self, query: str) -> str:

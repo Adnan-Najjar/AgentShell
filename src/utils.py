@@ -6,11 +6,17 @@ import time
 
 import paramiko
 
-MODEL = "llama3.1-8k:latest"
-MODEL_NAME = "llama3"
-
+MODEL = os.getenv("MODEL", "llama3.1:latest")
 BASE_URL = os.getenv("BASE_URL", "http://localhost:11434/v1")
 API_KEY = os.getenv("API_KEY", "dummy_key")
+
+TIMEOUT = 240  # 4 minutes
+MAX_VALIDATION_RETRIES = 3
+MAX_SCHEMA_RETRIES = 0
+
+MODEL_NAME = MODEL.replace(".", "-").split(":")[0]
+if "/" in MODEL_NAME:
+    MODEL_NAME = MODEL_NAME.split("/")[1]
 
 HOSTNAME = "svr01"
 CURR_DIR = "/root"
@@ -44,16 +50,12 @@ Rules:
 - Never say "command not found"; generate plausible output.
 
 Filesystem rules:
-- Only include files or directories that are:
-  - New
-  - Modified
-  - Missing (create dirs and files as you think keeps deciption)
-- Do NOT include unchanged entries.
-- Always start from root "/"
+- If no files are new, modified, or missing, return EMPTY "filesystem": {{}}.
+- ONLY include NEW, MODIFIED, or MISSING entries, return empty "filesystem" otherwise.
 - Maintain full hierarchical structure for each changed path.
-- If file: "type" should be "file" and the "content" is a string of the file content
-- If directory, "type" should be "dir" and the "content" is an object of the children added
-- Don't forget to put the output in command_output (the user can't see the filesystem value)
+- If file: "type" should be "file" and the "content" is a string of the file content.
+- If directory, "type" should be "dir" and the "content" is an object of the children added.
+- The command_output must be a string
 
 Structure:
 "filesystem": {{
@@ -67,8 +69,6 @@ Structure:
       "content": "<file content>"
     }}
 }}
-
-Here is the dynamic environment variables that you must return:
 """
 
 LOG_DIR = "logs"
@@ -217,6 +217,68 @@ def extract_command_flags(args: list) -> dict:
         "command": "",
         "flags": flags,
     }
+
+
+def fix_json(text: str) -> str:
+    """Try to fix malformed JSON with unescaped newlines in strings."""
+    result = []
+    in_string = False
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if char == '"' and (i == 0 or text[i - 1] != "\\"):
+            in_string = not in_string
+            result.append(char)
+        elif char == "\n" and in_string:
+            result.append("\\n")
+        elif char == "\\" and i + 1 < len(text):
+            result.append(char)
+            result.append(text[i + 1])
+            i += 1
+        else:
+            result.append(char)
+        i += 1
+    fixed = "".join(result)
+
+    # Extract JSON by brace matching
+    first_brace = -1
+    brace_count = 0
+    for i, char in enumerate(fixed):
+        if char == "{":
+            if first_brace == -1:
+                first_brace = i
+            brace_count += 1
+        elif char == "}":
+            brace_count -= 1
+            if brace_count == 0 and first_brace != -1:
+                return fixed[first_brace : i + 1]
+
+    return fixed
+
+
+def extract_json(text: str) -> str:
+    """Extract and repair JSON from LLM response using multiple strategies."""
+    # Try brace matching first
+    result = fix_json(text)
+    try:
+        json.loads(result)
+        return result
+    except json.JSONDecodeError:
+        pass
+
+    # Try just finding first { and last }
+    first_brace = text.find("{")
+    last_brace = text.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        result = text[first_brace : last_brace + 1]
+        try:
+            json.loads(result)
+            return result
+        except json.JSONDecodeError:
+            pass
+
+    # Last resort: try to fix common issues and return what we have
+    return text
 
 
 def collect_commands(output_filename: str, port: str, hostname="localhost"):

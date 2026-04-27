@@ -12,8 +12,6 @@ from utils import COMMANDS, MODEL_NAME, OUTPUT_DIR, SCENARIOS, TACTICS
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-
-
 def generate_table_markdown(rows, methods, first_col_name="Category"):
     """Generate markdown table from rows."""
     md = f"| {first_col_name}"

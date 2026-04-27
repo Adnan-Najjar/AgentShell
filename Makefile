@@ -19,4 +19,4 @@ shell:
 
 clean:
 	docker compose down
-	rm -rf logs/*
+	rm -rf logs/* output/downloads/*
