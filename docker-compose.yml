@@ -3,7 +3,7 @@ services:
     container_name: app
     build: .
     ports:
-      - "2222:22"
+      - "2223:22"
     environment:
       - MODEL=${MODEL}
       - BASE_URL=${BASE_URL}
@@ -14,7 +14,7 @@ services:
       honeypot-net:
         ipv4_address: 172.18.0.20
     volumes:
-      - ./output:/app/output
+      - ./results:/app/results
       - ./logs:/app/logs
 
   attacker-server:

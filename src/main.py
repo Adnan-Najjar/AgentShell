@@ -1,9 +1,9 @@
 from datetime import datetime
 import json
-import logging
+import os
 import pickle
 
-from openai import OpenAI, APITimeoutError
+from openai import APITimeoutError, OpenAI
 from pydantic import BaseModel, ValidationError
 
 from tools import Tools
@@ -14,35 +14,19 @@ from utils import (
     HOSTNAME,
     IS_ROOT,
     LOG_DIR,
-    MODEL,
-    MODEL_NAME,
-    SYSTEM_PROMPT,
-    USER,
-    USER_DIR,
-    TIMEOUT,
     MAX_SCHEMA_RETRIES,
     MAX_VALIDATION_RETRIES,
+    MODEL,
+    SYSTEM_PROMPT,
+    TIMEOUT,
+    USER,
+    USER_DIR,
     extract_command_flags,
     extract_json,
     fix_json,
+    log,
     parse_shell,
 )
-
-logger = logging.getLogger("agent")
-logger.setLevel(logging.INFO)
-logger.handlers.clear()
-
-file_handler = logging.FileHandler(
-    f"{LOG_DIR}/agent_{datetime.now().strftime('%d_%H-%M')}.log"
-)
-file_handler.setLevel(logging.INFO)
-file_handler.setFormatter(
-    logging.Formatter(
-        "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-)
-logger.addHandler(file_handler)
 
 
 class OutputStructure(BaseModel):
@@ -56,8 +40,10 @@ class OutputStructure(BaseModel):
 
 
 class Agent:
-    def __init__(self, model: str = MODEL_NAME) -> None:
-        logger.info(f"Initializing Agent with {model}")
+    def __init__(self, id="127.0.0.1") -> None:
+        log.info(f"Initializing Agent")
+
+        self.output = id.replace(".", "_")
 
         self.client = OpenAI(
             base_url=BASE_URL,
@@ -66,10 +52,17 @@ class Agent:
             max_retries=MAX_SCHEMA_RETRIES,
         )
 
-        self.tools = Tools(model)
+        self.tools = Tools(id)
 
-        with open("data/filesystem.pkl", "rb") as pklr:
-            self.filesystem = pickle.load(pklr)
+        session_fs_path = f"{LOG_DIR}/{self.output}_filesystem.pkl"
+        if os.path.exists(session_fs_path):
+            with open(session_fs_path, "rb") as pklr:
+                self.filesystem = pickle.load(pklr)
+            log.info(f"Loaded session filesystem from {session_fs_path}")
+        else:
+            with open("data/filesystem.pkl", "rb") as pklr:
+                self.filesystem = pickle.load(pklr)
+            log.info("Loaded default filesystem")
 
         self.current_state = {
             "HOSTNAME": HOSTNAME,
@@ -85,7 +78,7 @@ class Agent:
         self.total_tokens = 0
 
         self.shell_prompt = self._shell_prompt(self.current_state)
-        logger.info(f"Agent initialized. Current dir: {self.current_state['PWD']}")
+        log.info(f"Agent initialized. Current dir: {self.current_state['PWD']}")
 
     def _shell_prompt(self, state: dict) -> str:
         prompt = f"{state['USER']}@{state['HOSTNAME']}:{state['PWD']}{'#' if state['IS_ROOT'] else '$'} "
@@ -93,7 +86,7 @@ class Agent:
 
     def _format_state(self) -> str:
         return f"""
-Dynamic environment variables in JSON (you must return all of them):
+Dynamic environment variables in JSON (you must return all of them and change them if needed):
 {{
 "user": "{self.current_state["USER"]}",
 "home": "{self.current_state["HOME"]}",
@@ -137,7 +130,6 @@ Dynamic environment variables in JSON (you must return all of them):
 
         now = datetime.now()
         modified = now.strftime("%b %d %H:%M")
-        logger.info(f"save_to_fs: processing {len(fs_changes)} changes")
 
         for full_path, entry in fs_changes.items():
             if full_path == "/":
@@ -169,7 +161,7 @@ Dynamic environment variables in JSON (you must return all of them):
                         parent["content"] = {}
                     parent["content"][name] = merged
                     parent["content"][name]["modified"] = modified
-                    logger.info(f"save_to_fs: merged {full_path}")
+                    log.info(f"save_to_fs: merged {full_path}")
                 else:
                     entry_type = entry.get("type", "file")
                     if "content" not in parent:
@@ -180,22 +172,30 @@ Dynamic environment variables in JSON (you must return all of them):
                         entry["content"] = entry.get("content", "")
                     parent["content"][name] = entry
                     parent["content"][name]["modified"] = modified
-                    logger.info(f"save_to_fs: added {full_path}")
+                    log.info(f"save_to_fs: added {full_path}")
             except FileNotFoundError:
                 self._create_path(full_path, entry)
-                logger.info(f"save_to_fs: created and saved {full_path}")
+                log.info(f"save_to_fs: created and saved {full_path}")
+
+    def save_session_filesystem(self) -> str:
+        """Save current filesystem state to per-session file (not global)."""
+        import os
+        from utils import LOG_DIR
+
+        os.makedirs(LOG_DIR, exist_ok=True)
+        filepath = f"{LOG_DIR}/{self.output}_filesystem.pkl"
+        with open(filepath, "wb") as pklw:
+            pickle.dump(self.filesystem, pklw)
+        log.info(f"Saved session filesystem to {filepath}")
+        return filepath
 
     def chat_completion(self, prompt: str):
         retry_info = ""
         content = ""
-        logger.info(f"LLM: prompt given {prompt}")
 
         try:
             for attempt in range(MAX_VALIDATION_RETRIES):
                 full_prompt = f"{prompt}{retry_info}"
-                logger.info(
-                    f"LLM: attempt {attempt + 1}/{MAX_VALIDATION_RETRIES}, prompt length: {len(full_prompt)}"
-                )
 
                 try:
                     completion = self.client.chat.completions.create(
@@ -212,24 +212,21 @@ Dynamic environment variables in JSON (you must return all of them):
                         return ""
 
                     content = content.replace("```json", "", count=1).replace("```", "")
-
-                    logger.info(f"LLM: raw response ({len(content)} chars): {content}")
+                    log.info(f"chat_completion: LLM returned {content}")
 
                     try:
                         data = json.loads(content)
                     except json.JSONDecodeError as e:
-                        logger.warning(f"JSON decode failed: {e}, trying fix_json...")
+                        log.warning(f"JSON decode failed: {e}, trying fix_json...")
                         try:
                             fixed = fix_json(content)
                             data = json.loads(fixed)
                         except json.JSONDecodeError as e2:
-                            logger.warning(
+                            log.warning(
                                 f"fix_json failed: {e2}, trying extract_json..."
                             )
                             fixed = extract_json(content)
                             data = json.loads(fixed)
-
-                    logger.info(f"LLM: parsed JSON: {json.dumps(data)[:1000]}")
 
                     self.total_tokens = (
                         completion.usage.total_tokens if completion.usage else 0
@@ -238,17 +235,15 @@ Dynamic environment variables in JSON (you must return all of them):
                     try:
                         structured_output = OutputStructure(**data)
                     except Exception as e:
-                        logger.error(f"LLM error: {e}")
+                        log.error(f"LLM error: {e}")
                         return ""
-
-                    logger.info(f"State update: {structured_output.model_dump()}")
 
                     self.current_state = {
                         "USER": structured_output.user,
                         "HOME": structured_output.home,
                         "HOSTNAME": structured_output.hostname,
                         "PWD": structured_output.pwd,
-                        "IS_ROOT": structured_output.is_root,
+                        "IS_ROOT": bool(structured_output.is_root),
                     }
 
                     self.save_to_fs(structured_output.filesystem)
@@ -256,7 +251,7 @@ Dynamic environment variables in JSON (you must return all of them):
                     return structured_output.command_output
 
                 except json.JSONDecodeError as e:
-                    logger.warning(f"LLM: attempt {attempt + 1} failed (JSON): {e}")
+                    log.warning(f"LLM: attempt {attempt + 1} failed (JSON): {e}")
                     if content:
                         try:
                             try:
@@ -267,22 +262,21 @@ Dynamic environment variables in JSON (you must return all of them):
                                 data = json.loads(fixed)
                             structured_output = OutputStructure(**data)
                         except Exception as fallback_error:
-                            logger.warning(f"Fallback also failed: {fallback_error}")
+                            log.warning(f"Fallback also failed: {fallback_error}")
                             retry_info = f"\n\nInvalid JSON: {e}. ONLY return valid JSON with all fields."
 
                 except ValidationError as e:
-                    logger.warning(f"LLM: attempt {attempt + 1} failed (Pydantic): {e}")
+                    log.warning(f"LLM: attempt {attempt + 1} failed (Pydantic): {e}")
                     retry_info = f"\n\nMissing/invalid fields: {e}. Provide: user, home, hostname, pwd, is_root, filesystem, command_output."
 
                 except APITimeoutError as e:
-                    logger.warning(f"LLM: Timed Out")
+                    log.warning(f"LLM: Timed Out")
                     retry_info = f""
             return ""
         except:
             return ""
 
     def handle_command(self, command: str, args: list) -> str:
-
         match command:
             case "cd":
                 return self.tools.handle_cd(args, self.current_state, self.filesystem)
@@ -309,15 +303,23 @@ Dynamic environment variables in JSON (you must return all of them):
                 return self.tools.handle_history(args)
 
             case "curl":
-                out = self.tools.handle_curl(args)
+                out, fs_changes = self.tools.handle_curl(
+                    args, self.current_state["PWD"]
+                )
                 if out:
+                    if fs_changes:
+                        self.save_to_fs(fs_changes)
                     return out
                 else:
                     return ""
 
             case "wget":
-                out = self.tools.handle_wget(args)
+                out, fs_changes = self.tools.handle_wget(
+                    args, self.current_state["PWD"]
+                )
                 if out:
+                    if fs_changes:
+                        self.save_to_fs(fs_changes)
                     return out
                 else:
                     return ""
@@ -325,13 +327,12 @@ Dynamic environment variables in JSON (you must return all of them):
             case _:
                 valid, error_msg = self.tools.validate_command(command)
                 if not valid:
-                    logger.info(f"Invalid command: {command} with args {args}")
+                    log.info(f"Invalid command: {command} with args {args}")
                     return error_msg
                 return ""
 
     def chat(self, query: str) -> str:
-        logger.info(f"Query: {query}")
-
+        log.info(f"Query: {query}")
         output = ""
         last_id = self.tools.set_history(query)
 
@@ -378,6 +379,10 @@ Dynamic environment variables in JSON (you must return all of them):
         # Get info about the command
         docs = self.tools.get_docs(cmd_flags)
 
+        # Get the current state/environment
+        state = self._format_state()
+        log.info(state)
+
         # Get info about files/dirs in the command
         dirs = "Directory listing for "
         if not paths:
@@ -387,8 +392,9 @@ Dynamic environment variables in JSON (you must return all of them):
             for path in paths:
                 dirs += f"{path}: {self.tools.parse_path(self.filesystem, path).get('content', {})}\n"
 
-        logger.info(f"Directory listing: {dirs}")
-        prompt = f"{self._format_state()}\n\n{docs}\n{dirs}\n{cmd_outputs}\nUser Query: {query}"
+        log.info(dirs)
+
+        prompt = f"{state}\n\n{docs}\n{dirs}\n{cmd_outputs}\nUser Query: {query}"
 
         output = self.chat_completion(prompt)
 
@@ -400,7 +406,7 @@ Dynamic environment variables in JSON (you must return all of them):
 
 
 if __name__ == "__main__":
-    logger.info("Starting Agent shell")
+    log.info("Starting Agent shell...")
     agent = Agent()
     while True:
         q = input(agent.shell_prompt)
@@ -408,4 +414,3 @@ if __name__ == "__main__":
             response = agent.chat(q)
             if response != "":
                 print(response)
-            logger.info(f"Prompt updated: {agent.shell_prompt}")

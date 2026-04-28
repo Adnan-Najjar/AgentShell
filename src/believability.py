@@ -4,7 +4,7 @@ Believability Testing Module
 Tests scenario outputs against regex rules to determine believability score.
 """
 
-from datetime import datetime
+from datetime import date
 import json
 import logging
 import os
@@ -27,9 +27,7 @@ logger = logging.getLogger("test")
 logger.setLevel(logging.INFO)
 logger.handlers.clear()
 
-log_handler = logging.FileHandler(
-    f"{LOG_DIR}/test_{datetime.now().strftime('%d_%H-%M')}.log"
-)
+log_handler = logging.FileHandler(f"{LOG_DIR}/test_{date.today()}.log")
 log_handler.setLevel(logging.INFO)
 log_handler.setFormatter(
     logging.Formatter(

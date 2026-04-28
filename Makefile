@@ -1,15 +1,15 @@
-.PHONY: test shell clean
+.PHONY: test shell clean analyze serve
 
-default: shell
+default: serve
 
-build:
-	docker compose build
+serve:
+	docker compose up --build
 
 analyze:
 	docker compose up -d --build
 	docker compose exec app uv run src/test.py --analyze all
 
-generate:
+test:
 	docker compose up -d --build
 	docker compose exec app uv run src/test.py --llm all
 
@@ -18,5 +18,5 @@ shell:
 	docker compose exec app uv run src/main.py
 
 clean:
-	docker compose down
-	rm -rf logs/* output/downloads/*
+	docker compose down --remove-orphans
+	rm -rf logs/*

@@ -7,7 +7,7 @@ import sys
 
 from believability import BelievabilityChecker, CommandsChecker
 from main import Agent
-from utils import COMMANDS, MODEL_NAME, OUTPUT_DIR, SCENARIOS, TACTICS
+from utils import COMMANDS, MODEL_NAME, RESULTS_DIR, SCENARIOS, TACTICS
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -34,8 +34,8 @@ def generate_llm_commands():
     agent = Agent("commands")
 
     commands = json.load(open(f"{COMMANDS}.json", "r"))
-    output_file = f"{OUTPUT_DIR}/{MODEL_NAME}/commands.json"
-    os.makedirs(f"{OUTPUT_DIR}/{MODEL_NAME}", exist_ok=True)
+    output_file = f"{RESULTS_DIR}/{MODEL_NAME}/commands.json"
+    os.makedirs(f"{RESULTS_DIR}/{MODEL_NAME}", exist_ok=True)
     output = {}
 
     for i, command in enumerate(commands):
@@ -53,8 +53,8 @@ def generate_llm_commands():
 
 def generate_llm_scenarios():
     attack_scenarios: dict = json.load(open(f"{SCENARIOS}.json", "r"))
-    output_file = f"{OUTPUT_DIR}/{MODEL_NAME}/scenarios.json"
-    os.makedirs(f"{OUTPUT_DIR}/{MODEL_NAME}", exist_ok=True)
+    output_file = f"{RESULTS_DIR}/{MODEL_NAME}/scenarios.json"
+    os.makedirs(f"{RESULTS_DIR}/{MODEL_NAME}", exist_ok=True)
     output = {}
 
     for tactic in TACTICS:
@@ -79,25 +79,22 @@ def generate_llm_scenarios():
 
 
 def run_analyze(args, methods):
-    output_dir = f"{OUTPUT_DIR}/results"
-    os.makedirs(output_dir, exist_ok=True)
-
     commands_results = {}
     scenarios_results = {}
 
     if args.analyze in ("commands", "all"):
-        commands_checker = CommandsChecker(output_dir=output_dir)
+        commands_checker = CommandsChecker(output_dir=RESULTS_DIR)
         for method in methods:
-            dir_path = f"{OUTPUT_DIR}/{method}"
+            dir_path = f"{RESULTS_DIR}/{method}"
             if os.path.exists(f"{dir_path}/commands.json"):
                 commands_results[method] = commands_checker.test_method(
                     method, dir_path
                 )
 
     if args.analyze in ("scenarios", "all"):
-        scenarios_checker = BelievabilityChecker(output_dir=output_dir)
+        scenarios_checker = BelievabilityChecker(output_dir=RESULTS_DIR)
         for method in methods:
-            dir_path = f"{OUTPUT_DIR}/{method}"
+            dir_path = f"{RESULTS_DIR}/{method}"
             if os.path.exists(f"{dir_path}/scenarios.json"):
                 scenarios_results[method] = scenarios_checker.test_method(
                     method, dir_path
@@ -142,7 +139,7 @@ def run_analyze(args, methods):
         commands_table = ""
 
     if args.analyze in ("scenarios", "all"):
-        scenarios_checker = BelievabilityChecker(output_dir=output_dir)
+        scenarios_checker = BelievabilityChecker(output_dir=RESULTS_DIR)
         scenarios_checker.create_bar_chart(scenarios_results, methods)
         scenarios_checker.create_line_chart(scenarios_results, methods)
 
@@ -203,8 +200,8 @@ def run_analyze(args, methods):
         scenarios_table = ""
         token_table = ""
 
-    os.makedirs(output_dir, exist_ok=True)
-    output_file = f"{output_dir}/results.md"
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    output_file = f"{RESULTS_DIR}/results.md"
 
     with open(output_file, "w") as f:
         f.write("# Believability Analysis\n\n")
@@ -277,9 +274,9 @@ def main():
 
     if not methods:
         output_methods = []
-        if os.path.exists(OUTPUT_DIR):
-            for d in os.listdir(OUTPUT_DIR):
-                dir_path = f"{OUTPUT_DIR}/{d}"
+        if os.path.exists(RESULTS_DIR):
+            for d in os.listdir(RESULTS_DIR):
+                dir_path = f"{RESULTS_DIR}/{d}"
                 if os.path.isdir(dir_path) and d != "results":
                     if os.path.exists(f"{dir_path}/commands.json") or os.path.exists(
                         f"{dir_path}/scenarios.json"
@@ -288,12 +285,12 @@ def main():
         scenario_methods = [
             m
             for m in output_methods
-            if os.path.exists(f"{OUTPUT_DIR}/{m}/scenarios.json")
+            if os.path.exists(f"{RESULTS_DIR}/{m}/scenarios.json")
         ]
         command_methods = [
             m
             for m in output_methods
-            if os.path.exists(f"{OUTPUT_DIR}/{m}/commands.json")
+            if os.path.exists(f"{RESULTS_DIR}/{m}/commands.json")
         ]
         if args.analyze == "scenarios":
             methods = scenario_methods

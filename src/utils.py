@@ -2,7 +2,9 @@ import json
 import os
 import re
 import shlex
+import textwrap
 import time
+import logging
 
 import paramiko
 
@@ -44,10 +46,19 @@ Your IP is: {IP}
 
 Rules:
 - Do NOT give up.
-- Preserve and return ALL fields from prior state (do not drop any).
 - Output ONLY valid JSON (no comments, no extra text) and always use double qoutes in it.
 - Never return empty output.
 - Never say "command not found"; generate plausible output.
+
+=== STATE UPDATE RULES ===
+- The "user", "home", "hostname", "pwd", "is_root" fields in your JSON response are STATE fields.
+- You MUST UPDATE these state fields when commands change them.
+- Examples:
+  - If "cd /etc" runs, pwd MUST become "/etc" (not stay "/root")
+  - If "hostname myserver" runs, hostname MUST become "myserver"
+  - If "su user" runs, user MUST become "user" and is_root MUST become false
+  - If no state-changing command runs, PRESERVE existing values from the input state
+- Only change state fields when they actually change; otherwise keep existing values.
 
 Filesystem rules:
 - If no files are new, modified, or missing, return EMPTY "filesystem": {{}}.
@@ -71,6 +82,23 @@ Structure:
 }}
 """
 
+ACCEPTED_PASSWORDS = {"password", "admin", USER, "password123"}
+HOST_KEY_FILE = "ssh_host_rsa.key"
+MOTD = textwrap.dedent(
+    """\
+    Linux hostname 3.2.0-4-amd64 #1 SMP Debian 3.2.60-1+deb7u1 x86_64
+
+    Last login: {last_login}
+"""
+)
+
+
+def motd() -> str:
+    now = time.strftime("%a %b %d %H:%M:%S %Z %Y")
+    last = time.strftime("%a %b %d %H:%M:%S %Y", time.localtime(time.time() - 86400))
+    return MOTD.format(date=now, last_login=f"{last} from 192.168.1.1")
+
+
 LOG_DIR = "logs"
 os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -89,16 +117,36 @@ TACTICS = [
 METHODS = ["control", MODEL_NAME, "cowrie"]
 COLORS = ["blue", "red", "green", "orange"]
 
-OUTPUT_DIR = "output"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+RESULTS_DIR = "results"
+os.makedirs(RESULTS_DIR, exist_ok=True)
 
 COMMANDS = "data/commands"
 SCENARIOS = "data/scenarios"
 
-LLM_COMMANDS = f"{OUTPUT_DIR}/{MODEL_NAME}/commands.json"
-LLM_SCENARIOS = f"{OUTPUT_DIR}/{MODEL_NAME}/scenarios.json"
+LLM_COMMANDS = f"{RESULTS_DIR}/{MODEL_NAME}/commands.json"
+LLM_SCENARIOS = f"{RESULTS_DIR}/{MODEL_NAME}/scenarios.json"
 
 BAD_OUTPUTS = ["bad", "command not found", "No such file"]
+
+# Logging setup
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(
+    logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
+)
+
+file_handler = logging.FileHandler(f"{LOG_DIR}/debug.log")
+file_handler.setFormatter(
+    logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
+)
+
+log = logging.getLogger("honeypot")
+log.setLevel(logging.DEBUG)
+log.addHandler(console_handler)
+log.addHandler(file_handler)
 
 
 def run_cmd_ssh(cmd: str, port: str, hostname="localhost") -> str:

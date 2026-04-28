@@ -23,4 +23,6 @@ RUN mkdir output logs;
 COPY src/ ./src/
 COPY data/ ./data/
 
-CMD ["tail", "-f", "/dev/null"]
+EXPOSE 22
+
+CMD ["uv", "run", "src/ssh_server.py"]
