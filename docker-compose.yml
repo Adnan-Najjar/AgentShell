@@ -30,6 +30,55 @@ services:
       honeypot-net:
         ipv4_address: 172.18.0.21
 
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    networks:
+      elk-net:
+        ipv4_address: 172.19.0.10
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.17.0
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      elasticsearch:
+        condition: service_started
+    networks:
+      elk-net:
+        ipv4_address: 172.19.0.11
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.17.0
+    ports:
+      - "5044:5044"
+      - "9600:9600"
+    volumes:
+      - ./elk-stack/logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./elk-stack/logstash/config:/usr/share/logstash/config:ro
+      - ./logs:/usr/share/logstash/logs:ro
+    depends_on:
+      elasticsearch:
+        condition: service_started
+    networks:
+      elk-net:
+        ipv4_address: 172.19.0.12
+
 networks:
   honeypot-net:
     driver: bridge
@@ -37,3 +86,13 @@ networks:
       config:
         - subnet: 172.18.0.0/24
           gateway: 172.18.0.1
+
+  elk-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.19.0.0/24
+          gateway: 172.19.0.1
+
+volumes:
+  es-data:

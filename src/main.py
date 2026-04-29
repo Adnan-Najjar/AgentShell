@@ -343,11 +343,6 @@ Dynamic environment variables in JSON (you must return all of them and change th
         # Get args of the last command
         self.current_state["_"] = parsed_cmd[-1][-1]
 
-        # If it was only one command handle it
-        handle_command_output = self.handle_command(parsed_cmd[0][0], parsed_cmd[0][1:])
-        if len(parsed_cmd) < 2 and handle_command_output:
-            return handle_command_output
-
         # if it was nested commands
         paths = set()
         cmd_flags = {}

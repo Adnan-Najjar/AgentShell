@@ -27,7 +27,7 @@ from paramiko.common import (
     OPEN_SUCCEEDED,
 )
 
-from utils import ACCEPTED_PASSWORDS, HOSTNAME, HOST_KEY_FILE, LOG_DIR, USER, log, motd
+from utils import ACCEPTED_PASSWORDS, HOST_KEY_FILE, LOG_DIR, USER, log, motd
 from main import Agent
 
 
@@ -303,6 +303,7 @@ def run_shell(
         channel.sendall(data.encode())
 
     def send_line(line: str = ""):
+        line = line.replace("\r\n", "\n").replace("\n", "\r\n")
         send(line + "\r\n")
 
     def elapsed() -> float:
@@ -370,6 +371,7 @@ def run_shell(
                     return
 
                 if response:
+                    response = response.replace("\r\n", "\n").replace("\n", "\r\n")
                     send_line(response)
 
                 send(agent.shell_prompt)

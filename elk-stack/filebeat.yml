@@ -1,0 +1,12 @@
+filebeat.inputs:
+  - type: log
+    paths:
+      - /usr/share/filebeat/logs/*.log
+    json.keys_under_root: true
+    json.add_error_key: true
+    json.message_key: event
+
+output.logstash:
+  hosts: ["172.19.0.12:5044"]
+
+logging.level: info

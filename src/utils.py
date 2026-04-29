@@ -213,12 +213,12 @@ def run_cmd_ssh(cmd: str, port: str, hostname="localhost") -> str:
 def parse_shell(query: str) -> list[list[str]]:
     """
     Parses a shell-like command string into a sequential list of commands and operators.
-    Each command is a list of tokens; operators (|, ||, &&, ;) are preserved as strings.
+    Each command is a list of tokens; operators (|, ||, &&, ;, >, <, >>, <<) are preserved as strings.
     """
 
     try:
         # Pre-process: add spaces around operators if missing
-        for op in ["||", "&&", "|", ";"]:
+        for op in ["||", "&&", "|", ";", ">>", ">", "<<", "<"]:
             query = query.replace(op, f" {op} ")
 
         lexer = shlex.shlex(query, posix=True)
@@ -229,7 +229,7 @@ def parse_shell(query: str) -> list[list[str]]:
         current = []
 
         for token in lexer:
-            if token in {"|", "||", "&&", ";"}:
+            if token in {"|", "||", "&&", ";", ">>", ">", "<<", "<"}:
                 if current:
                     result.append(current)
                     current = []
