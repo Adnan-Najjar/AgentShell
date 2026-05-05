@@ -3,7 +3,7 @@ services:
     container_name: app
     build: .
     ports:
-      - "2223:22"
+      - "22:22"
     environment:
       - MODEL=${MODEL}
       - BASE_URL=${BASE_URL}

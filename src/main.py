@@ -3,7 +3,7 @@ import json
 import os
 import pickle
 
-from openai import APITimeoutError, OpenAI
+from openai import APITimeoutError, RateLimitError, OpenAI
 from pydantic import BaseModel, ValidationError
 
 from tools import Tools
@@ -17,6 +17,9 @@ from utils import (
     MAX_SCHEMA_RETRIES,
     MAX_VALIDATION_RETRIES,
     MODEL,
+    FALLBACK_BASE_URL,
+    FALLBACK_MODEL,
+    FALLBACK_API_KEY,
     SYSTEM_PROMPT,
     TIMEOUT,
     USER,
@@ -51,6 +54,8 @@ class Agent:
             timeout=TIMEOUT,
             max_retries=MAX_SCHEMA_RETRIES,
         )
+
+        self.current_model = MODEL
 
         self.tools = Tools(id)
 
@@ -199,7 +204,7 @@ Dynamic environment variables in JSON (you must return all of them and change th
 
                 try:
                     completion = self.client.chat.completions.create(
-                        model=MODEL,
+                        model=self.current_model,
                         messages=[
                             {"role": "system", "content": SYSTEM_PROMPT},
                             {"role": "user", "content": full_prompt},
@@ -272,6 +277,23 @@ Dynamic environment variables in JSON (you must return all of them and change th
                 except APITimeoutError as e:
                     log.warning(f"LLM: Timed Out")
                     retry_info = f""
+
+                except RateLimitError as e:
+                    log.warning(f"Rate limit hit on {self.current_model}")
+
+                    if self.current_model == MODEL:
+                        self.current_model = FALLBACK_MODEL
+                        self.client = OpenAI(
+                            base_url=FALLBACK_BASE_URL,
+                            api_key=FALLBACK_API_KEY,
+                            timeout=TIMEOUT,
+                            max_retries=MAX_SCHEMA_RETRIES,
+                        )
+                        log.info(f"Switching to fallback model: {self.current_model}")
+                    else:
+                        log.warning("Fallback model also rate-limited")
+                    retry_info = f""
+
             return ""
         except:
             return ""

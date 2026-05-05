@@ -3,14 +3,22 @@ import os
 import re
 import shlex
 import textwrap
+import requests
 import time
 import logging
+import random
+import ipaddress
 
 import paramiko
 
 MODEL = os.getenv("MODEL", "llama3.1:latest")
+FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "llama3.1:latest")
+
 BASE_URL = os.getenv("BASE_URL", "http://localhost:11434/v1")
+FALLBACK_BASE_URL = os.getenv("FALLBACK_BASE_URL", "http://localhost:11434/v1")
+
 API_KEY = os.getenv("API_KEY", "dummy_key")
+FALLBACK_API_KEY = os.getenv("FALLBACK_API_KEY", "dummy_key")
 
 TIMEOUT = 240  # 4 minutes
 MAX_VALIDATION_RETRIES = 3
@@ -20,12 +28,41 @@ MODEL_NAME = MODEL.replace(".", "-").split(":")[0]
 if "/" in MODEL_NAME:
     MODEL_NAME = MODEL_NAME.split("/")[1]
 
-HOSTNAME = "svr01"
-CURR_DIR = "/root"
-USER = "root"
-USER_DIR = "/root"
-IS_ROOT = True
-IP = "172.18.0.20"
+HOSTNAME = "prod"
+CURR_DIR = "/home/user"
+USER = "user"
+USER_DIR = "/home/user"
+IS_ROOT = False
+
+PUBLIC_IP = requests.get("https://api.ipify.org").text
+# Random IP based on a subnet
+SUBNET = "10.10.0.0/16"
+net = ipaddress.ip_network(SUBNET)
+hosts = list(net.hosts())
+PRIVATE_IP, LAST_LOGIN_IP = random.sample([str(ip) for ip in hosts], 2)
+
+SSH_BANNER = "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.3"
+MOTD = textwrap.dedent(
+    f"""\
+    Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 5.15.0-91-generic x86_64)
+
+     * Documentation:  https://help.ubuntu.com
+     * Management:     https://landscape.canonical.com
+     * Support:        https://ubuntu.com/pro
+
+     System information as of Thu May  7 12:34:56 UTC 2026
+
+      System load:  0.08               Processes:             112
+      Usage of /:   24.3% of 49.1GB    Users logged in:       1
+      Memory usage: 32%                IPv4 address for eth0: {PRIVATE_IP}
+      Swap usage:   0%
+
+      13 updates can be applied immediately.
+
+    Last login: {{last_login}}
+"""
+)
+
 ENV_VARS = {
     "TERM": "linux",
     "HUSHLOGIN": "FALSE",
@@ -38,17 +75,21 @@ ENV_VARS = {
     "-": "himBH",
 }
 
+ACCEPTED_USERS = {USER, "root", "admin"}
+ACCEPTED_PASSWORDS = {USER, "root", "admin", "password", "123456"}
+
 SYSTEM_PROMPT = f"""
-You are a fully configured Debian 7 system. For each command, return the output of that command with the given state/environment.
+You are a fully configured Ubuntu server 23.04 system. For each command, return the output of that command with the given state/environment.
 these are the static environment variables:
 {ENV_VARS}
-Your IP is: {IP}
+Your private IP is: {PRIVATE_IP}
+Your public IP is: {PUBLIC_IP}
 
 Rules:
 - Do NOT give up.
 - Output ONLY valid JSON (no comments, no extra text) and always use double qoutes in it.
 - Never return empty output.
-- Never say "command not found"; generate plausible output.
+- Never say "command not found" or "No such file..."; generate plausible output.
 
 === STATE UPDATE RULES ===
 - The "user", "home", "hostname", "pwd", "is_root" fields in your JSON response are STATE fields.
@@ -82,21 +123,13 @@ Structure:
 }}
 """
 
-ACCEPTED_PASSWORDS = {"password", "admin", USER, "password123"}
-HOST_KEY_FILE = "ssh_host_rsa.key"
-MOTD = textwrap.dedent(
-    """\
-    Linux hostname 3.2.0-4-amd64 #1 SMP Debian 3.2.60-1+deb7u1 x86_64
-
-    Last login: {last_login}
-"""
-)
-
+HOST_KEY_RSA = "ssh_host_rsa.key"
+HOST_KEY_ECDSA = "ssh_host_ecdsa.key"
 
 def motd() -> str:
     now = time.strftime("%a %b %d %H:%M:%S %Z %Y")
     last = time.strftime("%a %b %d %H:%M:%S %Y", time.localtime(time.time() - 86400))
-    return MOTD.format(date=now, last_login=f"{last} from 192.168.1.1")
+    return MOTD.format(date=now, last_login=f"{last} from {LAST_LOGIN_IP}")
 
 
 LOG_DIR = "logs"

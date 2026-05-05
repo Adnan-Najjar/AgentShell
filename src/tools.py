@@ -256,33 +256,21 @@ Reading state information... Done
 0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
 """
         update = """
-Ign http://deb.debian.org wheezy Release.gpg
-Ign http://deb.debian.org wheezy-updates Release.gpg
-Ign http://security.debian.org wheezy/updates Release.gpg
-Ign http://deb.debian.org wheezy Release
-Ign http://security.debian.org wheezy/updates Release
-Err http://security.debian.org wheezy/updates/main amd64 Packages
-
-Ign http://deb.debian.org wheezy-updates Release
-Err http://security.debian.org wheezy/updates/main amd64 Packages
-
-Err http://security.debian.org wheezy/updates/main amd64 Packages
-
-Err http://security.debian.org wheezy/updates/main amd64 Packages
-
-Err http://security.debian.org wheezy/updates/main amd64 Packages
-  404  Not Found [IP: 146.75.94.132 80]
-Err http://deb.debian.org wheezy/main amd64 Packages
-  404  Not Found
-Err http://deb.debian.org wheezy-updates/main amd64 Packages
-  404  Not Found
-W: Failed to fetch http://deb.debian.org/debian/dists/wheezy/main/binary-amd64/Packages  404  Not Found
-
-W: Failed to fetch http://security.debian.org/debian-security/dists/wheezy/updates/main/binary-amd64/Packages  404  Not Found [IP: 146.75.94.13 80]
-
-W: Failed to fetch http://deb.debian.org/debian-updates/dists/wheezy-updates/main/binary-amd64/Packages  404  Not Found
-
-E: Some index files failed to download. They have been ignored, or old ones used instead.
+Hit:1 http://archive.ubuntu.com/ubuntu lunar InRelease
+Get:2 http://archive.ubuntu.com/ubuntu lunar-updates InRelease [109 kB]
+Get:3 http://archive.ubuntu.com/ubuntu lunar-backports InRelease [101 kB]
+Get:4 http://security.ubuntu.com/ubuntu lunar-security InRelease [101 kB]
+Err:2 http://archive.ubuntu.com/ubuntu lunar-updates InRelease
+  The following signatures were invalid: EXPKEYSIG 871920D1991BC93C Ubuntu Archive Automatic Signing Key
+Err:3 http://archive.ubuntu.com/ubuntu lunar-backports InRelease
+  The following signatures were invalid: EXPKEYSIG 871920D1991BC93C Ubuntu Archive Automatic Signing Key
+Err:4 http://security.ubuntu.com/ubuntu lunar-security InRelease
+  The following signatures were invalid: EXPKEYSIG 871920D1991BC93C Ubuntu Archive Automatic Signing Key
+Reading package lists... Done
+W: GPG error: http://archive.ubuntu.com/ubuntu lunar-updates InRelease: The following signatures were invalid: EXPKEYSIG 871920D1991BC93C Ubuntu Archive Automatic Signing Key
+E: The repository 'http://archive.ubuntu.com/ubuntu lunar-updates InRelease' is no longer signed.
+N: Updating from such a repository can't be done securely, and is therefore disabled by default.
+E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' is no longer signed.
 """
         package_commands = [
             "install",

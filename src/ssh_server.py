@@ -20,6 +20,7 @@ import time
 import uuid
 
 import paramiko
+import paramiko.transport as pt
 from paramiko.common import (
     AUTH_FAILED,
     AUTH_SUCCESSFUL,
@@ -27,7 +28,17 @@ from paramiko.common import (
     OPEN_SUCCEEDED,
 )
 
-from utils import ACCEPTED_PASSWORDS, HOST_KEY_FILE, LOG_DIR, USER, log, motd
+from utils import (
+    ACCEPTED_PASSWORDS,
+    ACCEPTED_USERS,
+    HOST_KEY_RSA,
+    HOST_KEY_ECDSA,
+    LOG_DIR,
+    USER,
+    SSH_BANNER,
+    log,
+    motd,
+)
 from main import Agent
 
 
@@ -190,14 +201,28 @@ class HoneypotLogger:
 
 
 # ── Host key ──────────────────────────────────────────────────────────────────
-def get_host_key() -> paramiko.RSAKey:
-    if os.path.exists(HOST_KEY_FILE):
-        log.info("Loaded host key from %s", HOST_KEY_FILE)
-        return paramiko.RSAKey(filename=HOST_KEY_FILE)
-    log.info("Generating new RSA host key → %s", HOST_KEY_FILE)
-    key = paramiko.RSAKey.generate(2048)
-    key.write_private_key_file(HOST_KEY_FILE)
-    return key
+def get_host_key() -> list:
+    keys = []
+
+    if os.path.exists(HOST_KEY_RSA):
+        log.info("Loaded RSA host key from %s", HOST_KEY_RSA)
+        keys.append(paramiko.RSAKey(filename=HOST_KEY_RSA))
+    else:
+        log.info("Generating new RSA host key → %s", HOST_KEY_RSA)
+        key = paramiko.RSAKey.generate(2048)
+        key.write_private_key_file(HOST_KEY_RSA)
+        keys.append(key)
+
+    if os.path.exists(HOST_KEY_ECDSA):
+        log.info("Loaded ECDSA host key from %s", HOST_KEY_ECDSA)
+        keys.append(paramiko.ECDSAKey(filename=HOST_KEY_ECDSA))
+    else:
+        log.info("Generating new ECDSA host key → %s", HOST_KEY_ECDSA)
+        key = paramiko.ECDSAKey.generate()
+        key.write_private_key_file(HOST_KEY_ECDSA)
+        keys.append(key)
+
+    return keys
 
 
 # ── SSH Server interface ───────────────────────────────────────────────────────
@@ -209,8 +234,14 @@ class FakeSSHServer(paramiko.ServerInterface):
         self.client_ip = client_ip
         self.client_port = client_port
         self.username = "unknown"
+
         self.event = threading.Event()
+
+        self.exec_command: str | None = None
+
         self.hlog = hlog
+
+    # ── AUTH ────────────────────────────────────────────────────────────────
 
     def check_auth_password(self, username: str, password: str) -> int:
         self.hlog.auth_attempt(
@@ -221,8 +252,11 @@ class FakeSSHServer(paramiko.ServerInterface):
             username=username,
             password=password,
         )
-        if username != USER or password not in ACCEPTED_PASSWORDS:
+
+        if username not in ACCEPTED_USERS or password not in ACCEPTED_PASSWORDS:
             return AUTH_FAILED
+
+        self.username = username
         return AUTH_SUCCESSFUL
 
     def check_auth_publickey(self, username: str, key) -> int:
@@ -235,23 +269,25 @@ class FakeSSHServer(paramiko.ServerInterface):
             pubkey_type=key.get_name(),
             pubkey_fingerprint=key.get_fingerprint().hex(),
         )
-        if username != USER:
+
+        if username not in ACCEPTED_USERS:
             return AUTH_FAILED
+
+        self.username = username
         return AUTH_SUCCESSFUL
 
     def get_allowed_auths(self, username: str) -> str:
         return "password,publickey"
 
+    # ── CHANNEL HANDLING ────────────────────────────────────────────────────
+
     def check_channel_request(self, kind: str, chanid: int) -> int:
         self.hlog.channel_open(self.session_id, self.client_ip, self.client_port, kind)
+
         if kind == "session":
             return OPEN_SUCCEEDED
-        return OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
 
-    def check_channel_shell_request(self, channel) -> bool:
-        self.hlog.shell_requested(self.session_id, self.client_ip, self.client_port)
-        self.event.set()
-        return True
+        return OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
 
     def check_channel_pty_request(
         self, channel, term, width, height, pixelwidth, pixelheight, modes
@@ -266,13 +302,26 @@ class FakeSSHServer(paramiko.ServerInterface):
         )
         return True
 
+    def check_channel_shell_request(self, channel) -> bool:
+        self.hlog.shell_requested(self.session_id, self.client_ip, self.client_port)
+
+        # Interactive shell requested
+        self.exec_command = None
+        self.event.set()
+        return True
+
     def check_channel_exec_request(self, channel, command: bytes) -> bool:
+        cmd = command.decode(errors="replace")
+
+        self.exec_command = cmd
+
         self.hlog.exec_requested(
             self.session_id,
             self.client_ip,
             self.client_port,
-            command.decode(errors="replace"),
+            cmd,
         )
+
         self.event.set()
         return True
 
@@ -383,59 +432,88 @@ def run_shell(
 
 
 # ── Connection handler ─────────────────────────────────────────────────────────
-def handle_connection(conn: socket.socket, addr: tuple, host_key: paramiko.RSAKey):
-    client_ip, client_port = addr[0], addr[1]
-    session_id = str(uuid.uuid4())
-    connect_time = time.monotonic()
+_semaphore = threading.Semaphore(50)
 
-    hlog = HoneypotLogger(f"{LOG_DIR}/{date.today()}_{client_ip.replace('.', '_')}.log")
-    hlog.connection_open(session_id, client_ip, client_port)
 
-    transport = paramiko.Transport(conn)
-    transport.add_server_key(host_key)
+def handle_connection(
+    conn: socket.socket, addr: tuple, host_key: list[paramiko.RSAKey]
+):
+    with _semaphore:
+        conn.settimeout(30)
+        client_ip, client_port = addr[0], addr[1]
+        session_id = str(uuid.uuid4())
+        connect_time = time.monotonic()
 
-    server = FakeSSHServer(session_id, client_ip, client_port, hlog)
-
-    try:
-        transport.start_server(server=server)
-    except paramiko.SSHException as exc:
-        hlog.ssh_negotiation_failed(session_id, client_ip, client_port, str(exc))
-        hlog.connection_close(
-            session_id, client_ip, client_port, time.monotonic() - connect_time
+        hlog = HoneypotLogger(
+            f"{LOG_DIR}/{date.today()}_{client_ip.replace('.', '_')}.log"
         )
-        return
+        hlog.connection_open(session_id, client_ip, client_port)
 
-    channel = transport.accept(timeout=30)
-    if channel is None:
-        hlog.no_channel(session_id, client_ip, client_port)
-        hlog.connection_close(
-            session_id, client_ip, client_port, time.monotonic() - connect_time
-        )
-        transport.close()
-        return
+        transport = paramiko.Transport(conn)
+        transport.local_version = SSH_BANNER
 
-    server.event.wait(timeout=10)
-    if not server.event.is_set():
-        hlog.channel_timeout(session_id, client_ip, client_port)
-        hlog.connection_close(
-            session_id, client_ip, client_port, time.monotonic() - connect_time
-        )
-        transport.close()
-        return
+        for key in host_key:
+            transport.add_server_key(key)
 
-    agent = Agent(client_ip)
-    try:
-        run_shell(channel, session_id, client_ip, client_port, agent, hlog)
-    finally:
-        agent.save_session_filesystem()
-        hlog.connection_close(
-            session_id, client_ip, client_port, time.monotonic() - connect_time
-        )
+        server = FakeSSHServer(session_id, client_ip, client_port, hlog)
+
         try:
+            transport.start_server(server=server)
+        except (paramiko.SSHException, ConnectionResetError) as exc:
+            hlog.ssh_negotiation_failed(session_id, client_ip, client_port, str(exc))
+            hlog.connection_close(
+                session_id, client_ip, client_port, time.monotonic() - connect_time
+            )
+            return
+
+        channel = transport.accept(timeout=30)
+        if channel is None:
+            hlog.no_channel(session_id, client_ip, client_port)
+            hlog.connection_close(
+                session_id, client_ip, client_port, time.monotonic() - connect_time
+            )
+            transport.close()
+            return
+
+        server.event.wait(timeout=30)
+        if not server.event.is_set():
+            hlog.channel_timeout(session_id, client_ip, client_port)
+            hlog.connection_close(
+                session_id, client_ip, client_port, time.monotonic() - connect_time
+            )
             channel.close()
-        except Exception:
-            pass
-        transport.close()
+            transport.close()
+            return
+
+        agent = Agent(client_ip)
+        try:
+            if server.exec_command is not None:
+                cmd = server.exec_command.strip()
+                server.exec_command = None
+
+                response = dispatch(cmd, agent)
+                output = (response or "") + "\n"
+
+                try:
+                    channel.sendall(output.encode())
+                    channel.shutdown_write()
+                except Exception:
+                    pass
+
+                return
+
+            run_shell(channel, session_id, client_ip, client_port, agent, hlog)
+
+        finally:
+            agent.save_session_filesystem()
+            hlog.connection_close(
+                session_id, client_ip, client_port, time.monotonic() - connect_time
+            )
+            try:
+                channel.close()
+            except Exception:
+                pass
+            transport.close()
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
