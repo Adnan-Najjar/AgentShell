@@ -199,6 +199,14 @@ class HoneypotLogger:
         self.emit(sid, ip, port, "channel_timeout")
         log.warning("[%s] CHANNEL TIMEOUT  %s:%d", sid[:8], ip, port)
 
+    def output(self, sid, ip, port, command: str, output: str):
+        self.emit(sid, ip, port, "output", command=command, output=output)
+        log.debug("[%s] OUTPUT for %r", sid[:8], command)
+
+    def auth_success(self, sid, ip, port, username: str):
+        self.emit(sid, ip, port, "auth_success", username=username)
+        log.info("[%s] AUTH SUCCESS  %s:%d  user=%r", sid[:8], ip, port, username)
+
 
 # ── Host key ──────────────────────────────────────────────────────────────────
 def get_host_key() -> list:
@@ -256,6 +264,7 @@ class FakeSSHServer(paramiko.ServerInterface):
         if username not in ACCEPTED_USERS or password not in ACCEPTED_PASSWORDS:
             return AUTH_FAILED
 
+        self.hlog.auth_success(self.session_id, self.client_ip, self.client_port, username)
         self.username = username
         return AUTH_SUCCESSFUL
 
@@ -412,6 +421,7 @@ def run_shell(
 
                 hlog.command(session_id, client_ip, client_port, cmd, elapsed())
                 response = dispatch(cmd, agent)
+                hlog.output(session_id, client_ip, client_port, cmd, response or "")
 
                 if response is None:
                     hlog.session_logout(session_id, client_ip, client_port, "command")
@@ -492,6 +502,7 @@ def handle_connection(
                 server.exec_command = None
 
                 response = dispatch(cmd, agent)
+                hlog.output(session_id, client_ip, client_port, cmd, response or "")
                 output = (response or "") + "\n"
 
                 try:

@@ -40,11 +40,10 @@ def generate_llm_commands():
 
     for i, command in enumerate(commands):
         response = agent.chat(command)
-        output[command] = response
+        output[command] = {response: agent.total_tokens}
         print(
             f"Command number: {i}, Command output: {response if response else '':.30}, Tokens {agent.total_tokens}"
         )
-    output["tokens_used"] = agent.total_tokens
 
     with open(output_file, "w") as f:
         json.dump(output, f, indent=2)
@@ -91,15 +90,6 @@ def run_analyze(args, methods):
                     method, dir_path
                 )
 
-    if args.analyze in ("scenarios", "all"):
-        scenarios_checker = BelievabilityChecker(output_dir=RESULTS_DIR)
-        for method in methods:
-            dir_path = f"{RESULTS_DIR}/{method}"
-            if os.path.exists(f"{dir_path}/scenarios.json"):
-                scenarios_results[method] = scenarios_checker.test_method(
-                    method, dir_path
-                )
-
         all_categories = set()
         for method in methods:
             if method in commands_results:
@@ -123,6 +113,15 @@ def run_analyze(args, methods):
                     row.append("0%")
             cmd_rows.append(row)
 
+        tokens_row = ["**Tokens**"]
+        for method in methods:
+            if method in commands_results:
+                tokens = commands_results[method].get("_tokens", 0)
+                tokens_row.append(f"**{tokens}**")
+            else:
+                tokens_row.append("**0**")
+        cmd_rows.append(tokens_row)
+
         overall_row = ["**Overall**"]
         for method in methods:
             if method in commands_results:
@@ -134,12 +133,32 @@ def run_analyze(args, methods):
                 overall_row.append("**0%**")
         cmd_rows.append(overall_row)
 
+        usage_row = ["**Tokens/1%**"]
+        for method in methods:
+            if method in commands_results:
+                overall = commands_results[method].get("_overall", {}).get("accuracy", 0)
+                tokens = commands_results[method].get("_tokens", 0)
+                if overall > 0:
+                    ratio = tokens / overall
+                    usage_row.append(f"**{ratio:.1f}**")
+                else:
+                    usage_row.append("**N/A**")
+            else:
+                usage_row.append("**N/A**")
+        cmd_rows.append(usage_row)
+
         commands_table = generate_table_markdown(cmd_rows, methods)
     else:
         commands_table = ""
 
     if args.analyze in ("scenarios", "all"):
         scenarios_checker = BelievabilityChecker(output_dir=RESULTS_DIR)
+        for method in methods:
+            dir_path = f"{RESULTS_DIR}/{method}"
+            if os.path.exists(f"{dir_path}/scenarios.json"):
+                scenarios_results[method] = scenarios_checker.test_method(
+                    method, dir_path
+                )
         scenarios_checker.create_bar_chart(scenarios_results, methods)
         scenarios_checker.create_line_chart(scenarios_results, methods)
 

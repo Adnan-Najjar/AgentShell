@@ -169,7 +169,7 @@ console_handler.setFormatter(
     )
 )
 
-file_handler = logging.FileHandler(f"{LOG_DIR}/debug.log")
+file_handler = logging.FileHandler(f"{LOG_DIR}/tests_debug.log")
 file_handler.setFormatter(
     logging.Formatter(
         "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"

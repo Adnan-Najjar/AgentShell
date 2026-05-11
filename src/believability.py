@@ -309,6 +309,15 @@ class CommandsChecker:
         with open(self.categories_path, "r") as f:
             return json.load(f)
 
+    def _extract_output_and_tokens(self, data):
+        """Extract output string and tokens from nested commands.json format."""
+        if isinstance(data, dict):
+            for output_str, tokens in data.items():
+                return output_str, tokens
+        elif isinstance(data, str):
+            return data, 0
+        return "", 0
+
     def test_command(self, command: str, output: str, method: str = "") -> dict:
         """Test one command output against its regex pattern."""
         pattern = self.rules.get(command, "")
@@ -320,20 +329,19 @@ class CommandsChecker:
                 "output": str(output)[:200] if output else "",
             }
 
-        output_str = str(output) if output else ""
-        match = re.search(pattern, output_str, re.MULTILINE | re.DOTALL | re.IGNORECASE)
+        match = re.search(pattern, output, re.MULTILINE | re.DOTALL | re.IGNORECASE)
 
         if match:
             logger.info(f"[PASS] {method} | {command}")
         else:
             logger.warning(f"[FAIL] {method} | {command}")
             logger.debug(f"  Pattern: {pattern}")
-            logger.debug(f"  Output: {output_str[:200]}")
+            logger.debug(f"  Output: {output[:200]}")
 
         return {
             "matched": bool(match),
             "pattern": pattern,
-            "output": output_str[:200],
+            "output": output[:200],
         }
 
     def test_method(self, method: str, commands_dir: str = "data/commands") -> dict:
@@ -350,20 +358,27 @@ class CommandsChecker:
 
         results = {}
         category_results = {}
+        total_tokens = 0
+        category_tokens = {}
 
-        for command, output in command_outputs.items():
-            if command == "tokens_used":
-                continue
+        for command, data in command_outputs.items():
+            output, tokens = self._extract_output_and_tokens(data)
+            total_tokens += tokens
 
             category = self.categories.get(command, "unknown")
+            if category not in category_tokens:
+                category_tokens[category] = 0
+            category_tokens[category] += tokens
+
             test_result = self.test_command(command, output, method)
 
             results[command] = test_result
 
             if category not in category_results:
-                category_results[category] = {"matched": 0, "total": 0}
+                category_results[category] = {"matched": 0, "total": 0, "tokens": 0}
 
             category_results[category]["total"] += 1
+            category_results[category]["tokens"] += tokens
             if test_result["matched"]:
                 category_results[category]["matched"] += 1
 
@@ -387,6 +402,7 @@ class CommandsChecker:
             "accuracy": overall_accuracy,
         }
         results["_categories"] = category_results
+        results["_tokens"] = total_tokens
 
         return results
 
