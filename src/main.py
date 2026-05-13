@@ -58,6 +58,7 @@ class Agent:
         self.current_model = MODEL
 
         self.tools = Tools(id)
+        self.history = []
 
         session_fs_path = f"{LOG_DIR}/{self.output}_filesystem.pkl"
         if os.path.exists(session_fs_path):
@@ -182,8 +183,27 @@ Dynamic environment variables in JSON (you must return all of them and change th
                 self._create_path(full_path, entry)
                 log.info(f"save_to_fs: created and saved {full_path}")
 
+    def save_session_history(self):
+        """Save current history state to .bash_history file."""
+        now = datetime.now()
+        self.save_to_fs(
+            {
+                f"{self.current_state["USER_DIR"]}/.bash_history": {
+                    "type": "file",
+                    "permissions": "-rw-------",
+                    "owner": USER,
+                    "group": USER,
+                    "modified": now.strftime("%Y-%m-%d"),
+                    "content": '\n'.join(self.history),
+                }
+            }
+        )
+        pass
+
     def save_session_filesystem(self) -> str:
         """Save current filesystem state to per-session file (not global)."""
+        self.save_session_history()
+
         import os
         from utils import LOG_DIR
 
@@ -322,7 +342,7 @@ Dynamic environment variables in JSON (you must return all of them and change th
                 return self.current_state["HOSTNAME"]
 
             case "history":
-                return self.tools.handle_history(args)
+                return self.handle_history(args)
 
             case "curl":
                 out, fs_changes = self.tools.handle_curl(
@@ -353,10 +373,19 @@ Dynamic environment variables in JSON (you must return all of them and change th
                     return error_msg
                 return ""
 
+    def handle_history(self, args: list) -> str:
+        if "-c" in args:
+            self.history = []
+            return ""
+        if not self.history:
+            return ""
+        return "\n".join(f"{i+1}\t{cmd}" for i, cmd in enumerate(self.history))
+
     def chat(self, query: str) -> str:
         log.info(f"Query: {query}")
         output = ""
-        last_id = self.tools.set_history(query)
+
+        self.history.append(query)
 
         parsed_cmd: list[list[str]] = parse_shell(query)
         if not parsed_cmd:
@@ -417,8 +446,6 @@ Dynamic environment variables in JSON (you must return all of them and change th
         output = self.chat_completion(prompt)
 
         self.shell_prompt = self._shell_prompt(self.current_state)
-
-        self.tools.update_history(last_id, output)
 
         return output
 

@@ -6,7 +6,6 @@ import re
 import shlex
 import shutil
 import socket
-import sqlite3
 import subprocess
 from urllib.parse import urljoin, urlparse
 
@@ -19,70 +18,6 @@ class Tools:
     def __init__(self, ip_addr: str):
         self._prev_dir = None
         self.output = ip_addr.replace(".", "_")
-
-        self.conn = sqlite3.connect(
-            f"{LOG_DIR}/{self.output}.db", check_same_thread=False
-        )
-        self._init_db()
-
-    def _init_db(self):
-        cursor = self.conn.cursor()
-        cursor.execute(
-            f"""
-            CREATE TABLE IF NOT EXISTS history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                command TEXT NOT NULL,
-                output TEXT,
-                deleted INTEGER DEFAULT 0
-            )
-            """
-        )
-        self.conn.commit()
-
-    def get_history(self) -> str:
-        """Show command history."""
-        cursor = self.conn.cursor()
-        cursor.execute(
-            f"SELECT ROW_NUMBER() OVER (ORDER BY id), command FROM history WHERE deleted = 0 LIMIT 500"
-        )
-        results = cursor.fetchall()
-
-        if results is None:
-            return ""
-
-        output = ""
-        for cmd_id, command in results:
-            output += f"\n {cmd_id}\t{command}"
-        return output
-
-    def set_history(self, command: str) -> int:
-        """Store command in history."""
-        cursor = self.conn.cursor()
-        cursor.execute(
-            f"INSERT INTO history (command, output) VALUES (?, NULL)", (command,)
-        )
-        self.conn.commit()
-        return cursor.lastrowid if cursor.lastrowid else 1
-
-    def update_history(self, cmd_id: int, output: str):
-        """Update command output in history."""
-        cursor = self.conn.cursor()
-        cursor.execute(f"UPDATE history SET output = ? WHERE id = ?", (output, cmd_id))
-        self.conn.commit()
-
-    def delete_history(self):
-        """Clear all command history."""
-        cursor = self.conn.cursor()
-        cursor.execute(f"UPDATE history SET deleted = 1")
-        self.conn.commit()
-
-    def __del__(self):
-        if hasattr(self, "conn"):
-            self.conn.close()
-
-    def __exit__(self):
-        if hasattr(self, "conn"):
-            self.conn.close()
 
     def validate_command(self, command: str) -> tuple[bool, str]:
         try:
@@ -301,13 +236,6 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
                         continue
             else:
                 return help_menu
-
-    def handle_history(self, args: list) -> str:
-        log.info(f"history: {args}")
-        if len(args) > 1 and args[1] == "-c":
-            self.delete_history()
-            return ""
-        return self.get_history()
 
     def handle_cd(self, args: list, current_state: dict, filesystem: dict) -> str:
         target = args[1] if len(args) > 1 else "~"
@@ -556,6 +484,11 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
 
         # Add downloaded file to filesystem
         modified = datetime.now().strftime("%b %d %H:%M")
+        try:
+            with open(output_path, "r") as f:
+                file_content = f.read()
+        except:
+            file_content = ""
         fs_entry = {
             "type": "file",
             "permissions": "-rw-r--r--",
@@ -563,7 +496,7 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
             "group": "root",
             "modified": modified,
             "size": str(size),
-            "content": "",
+            "content": file_content,
         }
 
         return (response, {f"{pwd}/{filename}": fs_entry})
@@ -642,6 +575,11 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
 
         # Add downloaded file to filesystem
         modified = datetime.now().strftime("%b %d %H:%M")
+        try:
+            with open(output_path, "r") as f:
+                file_content = f.read()
+        except:
+            file_content = ""
         fs_entry = {
             "type": "file",
             "permissions": "-rw-r--r--",
@@ -649,7 +587,7 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
             "group": "root",
             "modified": modified,
             "size": str(size),
-            "content": "",
+            "content": file_content,
         }
 
         return (progress, {f"{pwd}/{filename}": fs_entry})
