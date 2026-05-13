@@ -405,7 +405,9 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
             # If resolution fails, safer to block
             return True
 
-    def handle_downloads(self, url: str, output_path: str) -> dict | None:
+    def handle_downloads(
+        self, url: str, output_path: str, command: str = "wget"
+    ) -> dict | None:
         parsed = urlparse(url)
 
         if parsed.scheme not in ("http", "https"):
@@ -414,6 +416,12 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
         if not parsed.hostname or self._is_blocked_host(parsed.hostname):
             return None
 
+        # User-Agent based on command
+        if command == "curl":
+            headers = {"User-Agent": "curl/8.4.0"}
+        else:
+            headers = {"User-Agent": "Wget/1.21.3"}
+
         try:
             current_url = url
 
@@ -421,6 +429,7 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
                 response = requests.get(
                     current_url,
                     allow_redirects=False,
+                    headers=headers,
                     timeout=10,
                 )
 
@@ -508,7 +517,7 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
 
         start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        result = self.handle_downloads(url, output_path)
+        result = self.handle_downloads(url, output_path, command="wget")
 
         if not result:
             return (f"--{start_time}--  {url}\nERROR: download failed\n", {})
@@ -605,7 +614,7 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_path = os.path.join(downloads_dir, f"{timestamp}_{filename}")
 
-        result = self.handle_downloads(url, output_path)
+        result = self.handle_downloads(url, output_path, command="curl")
 
         if not result:
             return ("curl: (7) Failed to connect\n", {})

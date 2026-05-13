@@ -80,7 +80,7 @@ class Agent:
             "IS_ROOT": IS_ROOT,
             "filesystem": {},
         }
-        self.total_tokens = 0
+        self.prompt_tokens = 0
 
         self.shell_prompt = self._shell_prompt(self.current_state)
         log.info(f"Agent initialized. Current dir: {self.current_state['PWD']}")
@@ -233,8 +233,8 @@ Dynamic environment variables in JSON (you must return all of them and change th
                             fixed = extract_json(content)
                             data = json.loads(fixed)
 
-                    self.total_tokens = (
-                        completion.usage.total_tokens if completion.usage else 0
+                    self.prompt_tokens = (
+                        completion.usage.prompt_tokens if completion.usage else 0
                     )
 
                     try:
@@ -408,6 +408,7 @@ Dynamic environment variables in JSON (you must return all of them and change th
         else:
             for path in paths:
                 dirs += f"{path}: {self.tools.parse_path(self.filesystem, path).get('content', {})}\n"
+        dirs += "\n(If directory or files are empty generate plausible ones instead)"
 
         log.info(dirs)
 

@@ -264,7 +264,9 @@ class FakeSSHServer(paramiko.ServerInterface):
         if username not in ACCEPTED_USERS or password not in ACCEPTED_PASSWORDS:
             return AUTH_FAILED
 
-        self.hlog.auth_success(self.session_id, self.client_ip, self.client_port, username)
+        self.hlog.auth_success(
+            self.session_id, self.client_ip, self.client_port, username
+        )
         self.username = username
         return AUTH_SUCCESSFUL
 

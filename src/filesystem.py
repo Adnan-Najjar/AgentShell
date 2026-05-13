@@ -1,3 +1,5 @@
+from utils import USER, motd
+
 filesystem = {
     "/": {
         "type": "dir",
@@ -29,24 +31,7 @@ filesystem = {
                 "group": "root",
                 "modified": "2025-06-20",
                 "size": "4096",
-                "content": {
-                    "vmlinuz": {
-                        "type": "file",
-                        "permissions": "-rwxr-xr-x",
-                        "owner": "root",
-                        "group": "root",
-                        "modified": "2025-06-20",
-                        "size": "8MB",
-                    },
-                    "initrd.img": {
-                        "type": "file",
-                        "permissions": "-rwxr-xr-x",
-                        "owner": "root",
-                        "group": "root",
-                        "modified": "2025-06-20",
-                        "size": "150MB",
-                    },
-                },
+                "content": {},
             },
             "dev": {
                 "type": "dir",
@@ -90,6 +75,15 @@ filesystem = {
                 "modified": "2025-04-10",
                 "size": "4096",
                 "content": {
+                    "motd": {
+                        "type": "file",
+                        "permissions": "-rw-r--r--",
+                        "owner": "root",
+                        "group": "root",
+                        "modified": "2025-03-22",
+                        "size": "2KB",
+                        "content": motd(),
+                    },
                     "passwd": {
                         "type": "file",
                         "permissions": "-rw-r--r--",
@@ -134,23 +128,14 @@ filesystem = {
                 "modified": "2025-01-15",
                 "size": "4096",
                 "content": {
-                    "user": {
+                    USER: {
                         "type": "dir",
                         "permissions": "drwxr-xr-x",
                         "owner": "user",
                         "group": "user",
                         "modified": "2025-04-05",
                         "size": "4096",
-                        "content": {
-                            ".bashrc": {
-                                "type": "file",
-                                "permissions": "-rw-r--r--",
-                                "owner": "user",
-                                "group": "user",
-                                "modified": "2025-04-05",
-                                "size": "2KB",
-                            }
-                        },
+                        "content": {},
                     }
                 },
             },
@@ -204,42 +189,7 @@ filesystem = {
                 "group": "root",
                 "modified": "2025-01-15",
                 "size": "4096",
-                "content": {
-                    "cpuinfo": {
-                        "type": "file",
-                        "permissions": "-r--r--r--",
-                        "owner": "root",
-                        "group": "root",
-                        "modified": "2025-04-21",
-                        "size": "1KB",
-                    },
-                    "meminfo": {
-                        "type": "file",
-                        "permissions": "-r--r--r--",
-                        "owner": "root",
-                        "group": "root",
-                        "modified": "2025-04-21",
-                        "size": "2KB",
-                    },
-                    "1": {
-                        "type": "dir",
-                        "permissions": "dr-xr-xr-x",
-                        "owner": "root",
-                        "group": "root",
-                        "modified": "2025-04-21",
-                        "size": "4096",
-                        "content": {
-                            "cmdline": {
-                                "type": "file",
-                                "permissions": "-r--r--r--",
-                                "owner": "root",
-                                "group": "root",
-                                "modified": "2025-04-21",
-                                "size": "256B",
-                            }
-                        },
-                    },
-                },
+                "content": {},
             },
             "root": {
                 "type": "dir",
@@ -248,16 +198,7 @@ filesystem = {
                 "group": "root",
                 "modified": "2025-04-18",
                 "size": "4096",
-                "content": {
-                    ".bashrc": {
-                        "type": "file",
-                        "permissions": "-rw-r--r--",
-                        "owner": "root",
-                        "group": "root",
-                        "modified": "2025-04-18",
-                        "size": "2KB",
-                    }
-                },
+                "content": {},
             },
             "run": {
                 "type": "dir",
@@ -293,26 +234,7 @@ filesystem = {
                 "group": "root",
                 "modified": "2025-01-15",
                 "size": "4096",
-                "content": {
-                    "kernel": {
-                        "type": "dir",
-                        "permissions": "dr-xr-xr-x",
-                        "owner": "root",
-                        "group": "root",
-                        "modified": "2025-04-21",
-                        "size": "4096",
-                        "content": {
-                            "version": {
-                                "type": "file",
-                                "permissions": "-r--r--r--",
-                                "owner": "root",
-                                "group": "root",
-                                "modified": "2025-04-21",
-                                "size": "128B",
-                            }
-                        },
-                    }
-                },
+                "content": {},
             },
             "tmp": {
                 "type": "dir",
@@ -330,138 +252,7 @@ filesystem = {
                 "group": "root",
                 "modified": "2025-01-15",
                 "size": "4096",
-                "content": {
-                    "bin": {
-                        "type": "dir",
-                        "permissions": "drwxr-xr-x",
-                        "owner": "root",
-                        "group": "root",
-                        "modified": "2025-03-15",
-                        "size": "4096",
-                        "content": {
-                            "ls": {
-                                "type": "file",
-                                "permissions": "-rwxr-xr-x",
-                                "owner": "root",
-                                "group": "root",
-                                "modified": "2025-03-15",
-                                "size": "145KB",
-                            },
-                            "bash": {
-                                "type": "file",
-                                "permissions": "-rwxr-xr-x",
-                                "owner": "root",
-                                "group": "root",
-                                "modified": "2025-03-15",
-                                "size": "1.2MB",
-                            },
-                            "cat": {
-                                "type": "file",
-                                "permissions": "-rwxr-xr-x",
-                                "owner": "root",
-                                "group": "root",
-                                "modified": "2025-03-15",
-                                "size": "67KB",
-                            },
-                            "cp": {
-                                "type": "file",
-                                "permissions": "-rwxr-xr-x",
-                                "owner": "root",
-                                "group": "root",
-                                "modified": "2025-03-15",
-                                "size": "89KB",
-                            },
-                            "mv": {
-                                "type": "file",
-                                "permissions": "-rwxr-xr-x",
-                                "owner": "root",
-                                "group": "root",
-                                "modified": "2025-03-15",
-                                "size": "92KB",
-                            },
-                            "rm": {
-                                "type": "file",
-                                "permissions": "-rwxr-xr-x",
-                                "owner": "root",
-                                "group": "root",
-                                "modified": "2025-03-15",
-                                "size": "78KB",
-                            },
-                            "echo": {
-                                "type": "file",
-                                "permissions": "-rwxr-xr-x",
-                                "owner": "root",
-                                "group": "root",
-                                "modified": "2025-03-15",
-                                "size": "45KB",
-                            },
-                        },
-                    },
-                    "sbin": {
-                        "type": "dir",
-                        "permissions": "drwxr-xr-x",
-                        "owner": "root",
-                        "group": "root",
-                        "modified": "2025-03-15",
-                        "size": "4096",
-                        "content": {
-                            "reboot": {
-                                "type": "file",
-                                "permissions": "-rwxr-xr-x",
-                                "owner": "root",
-                                "group": "root",
-                                "modified": "2025-03-15",
-                                "size": "34KB",
-                            },
-                            "shutdown": {
-                                "type": "file",
-                                "permissions": "-rwxr-xr-x",
-                                "owner": "root",
-                                "group": "root",
-                                "modified": "2025-03-15",
-                                "size": "38KB",
-                            },
-                        },
-                    },
-                    "lib": {
-                        "type": "dir",
-                        "permissions": "drwxr-xr-x",
-                        "owner": "root",
-                        "group": "root",
-                        "modified": "2025-03-15",
-                        "size": "4096",
-                        "content": {
-                            "modules": {
-                                "type": "dir",
-                                "permissions": "drwxr-xr-x",
-                                "owner": "root",
-                                "group": "root",
-                                "modified": "2025-06-20",
-                                "size": "4096",
-                                "content": {},
-                            }
-                        },
-                    },
-                    "share": {
-                        "type": "dir",
-                        "permissions": "drwxr-xr-x",
-                        "owner": "root",
-                        "group": "root",
-                        "modified": "2025-03-15",
-                        "size": "4096",
-                        "content": {
-                            "doc": {
-                                "type": "dir",
-                                "permissions": "drwxr-xr-x",
-                                "owner": "root",
-                                "group": "root",
-                                "modified": "2025-03-15",
-                                "size": "4096",
-                                "content": {},
-                            }
-                        },
-                    },
-                },
+                "content": {},
             },
             "var": {
                 "type": "dir",
@@ -470,53 +261,7 @@ filesystem = {
                 "group": "root",
                 "modified": "2025-01-15",
                 "size": "4096",
-                "content": {
-                    "log": {
-                        "type": "dir",
-                        "permissions": "drwxr-xr-x",
-                        "owner": "root",
-                        "group": "root",
-                        "modified": "2025-04-21",
-                        "size": "4096",
-                        "content": {
-                            "syslog": {
-                                "type": "file",
-                                "permissions": "-rw-r-----",
-                                "owner": "root",
-                                "group": "adm",
-                                "modified": "2025-04-21",
-                                "size": "10MB",
-                            }
-                        },
-                    },
-                    "tmp": {
-                        "type": "dir",
-                        "permissions": "drwxrwxrwt",
-                        "owner": "root",
-                        "group": "root",
-                        "modified": "2025-04-21",
-                        "size": "4096",
-                        "content": {},
-                    },
-                    "lib": {
-                        "type": "dir",
-                        "permissions": "drwxr-xr-x",
-                        "owner": "root",
-                        "group": "root",
-                        "modified": "2025-01-15",
-                        "size": "4096",
-                        "content": {},
-                    },
-                    "cache": {
-                        "type": "dir",
-                        "permissions": "drwxr-xr-x",
-                        "owner": "root",
-                        "group": "root",
-                        "modified": "2025-04-21",
-                        "size": "4096",
-                        "content": {},
-                    },
-                },
+                "content": {},
             },
         },
     }

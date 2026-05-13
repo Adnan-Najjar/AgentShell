@@ -89,13 +89,14 @@ Rules:
 - Do NOT give up.
 - Output ONLY valid JSON (no comments, no extra text) and always use double qoutes in it.
 - Never return empty output.
-- Never say "command not found" or "No such file..."; generate plausible output.
+- Never say "command not found"; generate plausible output. 
+- Never say "No such file..."; generate plausible output.
 
 === STATE UPDATE RULES ===
 - The "user", "home", "hostname", "pwd", "is_root" fields in your JSON response are STATE fields.
 - You MUST UPDATE these state fields when commands change them.
 - Examples:
-  - If "cd /etc" runs, pwd MUST become "/etc" (not stay "/root")
+  - If "cd /etc" runs, pwd MUST become "/etc"
   - If "hostname myserver" runs, hostname MUST become "myserver"
   - If "su user" runs, user MUST become "user" and is_root MUST become false
   - If no state-changing command runs, PRESERVE existing values from the input state
@@ -125,6 +126,7 @@ Structure:
 
 HOST_KEY_RSA = "ssh_host_rsa.key"
 HOST_KEY_ECDSA = "ssh_host_ecdsa.key"
+
 
 def motd() -> str:
     now = time.strftime("%a %b %d %H:%M:%S %Z %Y")

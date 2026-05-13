@@ -2,4 +2,5 @@
 .venv
 *.log
 logs/
+elk-stack/logstash/data/
 __pycache__/

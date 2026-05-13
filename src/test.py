@@ -40,9 +40,9 @@ def generate_llm_commands():
 
     for i, command in enumerate(commands):
         response = agent.chat(command)
-        output[command] = {response: agent.total_tokens}
+        output[command] = {response: agent.prompt_tokens}
         print(
-            f"Command number: {i}, Command output: {response if response else '':.30}, Tokens {agent.total_tokens}"
+            f"Command number: {i}, Command output: {response if response else '':.30}, Tokens {agent.prompt_tokens}"
         )
 
     with open(output_file, "w") as f:
@@ -65,9 +65,9 @@ def generate_llm_scenarios():
         for step, command in attack_scenarios[tactic].items():
             response = agent.chat(command)
             tactic_commands[step] = response
-            tactic_tokens[step] = agent.total_tokens
+            tactic_tokens[step] = agent.prompt_tokens
             print(
-                f"Attack scenario {tactic} at step: {step}, Output: {response if response else '':.30}, Tokens: {agent.total_tokens}"
+                f"Attack scenario {tactic} at step: {step}, Output: {response if response else '':.30}, Tokens: {agent.prompt_tokens}"
             )
         output[tactic] = tactic_commands
         output[tactic + "_tokens"] = tactic_tokens
@@ -136,7 +136,9 @@ def run_analyze(args, methods):
         usage_row = ["**Tokens/1%**"]
         for method in methods:
             if method in commands_results:
-                overall = commands_results[method].get("_overall", {}).get("accuracy", 0)
+                overall = (
+                    commands_results[method].get("_overall", {}).get("accuracy", 0)
+                )
                 tokens = commands_results[method].get("_tokens", 0)
                 if overall > 0:
                     ratio = tokens / overall
@@ -192,32 +194,32 @@ def run_analyze(args, methods):
                 overall_row.append("**0%**")
         scn_rows.append(overall_row)
 
-        scenarios_table = generate_table_markdown(scn_rows, methods, "Scenario")
-
-        tok_rows = []
-        for tactic in tactics:
-            row = [tactic]
-            for method in methods:
-                if method in scenarios_results:
-                    tokens = scenarios_results[method].get("_tokens", {}).get(tactic, 0)
-                    row.append(str(tokens))
-                else:
-                    row.append("0")
-            tok_rows.append(row)
-
-        total_row = ["**Total**"]
+        tokens_row = ["**Tokens**"]
         for method in methods:
             if method in scenarios_results:
                 total = scenarios_results[method].get("_tokens", {}).get("_total", 0)
-                total_row.append(f"**{total}**")
+                tokens_row.append(f"**{total}**")
             else:
-                total_row.append("**0**")
-        tok_rows.append(total_row)
+                tokens_row.append("**0**")
+        scn_rows.append(tokens_row)
 
-        token_table = generate_table_markdown(tok_rows, methods, "Tactic")
+        usage_row = ["**Tokens/1%**"]
+        for method in methods:
+            if method in scenarios_results:
+                overall = scenarios_results[method].get("_overall", {}).get("accuracy", 0)
+                tokens = scenarios_results[method].get("_tokens", {}).get("_total", 0)
+                if overall > 0:
+                    ratio = tokens / overall
+                    usage_row.append(f"**{ratio:.1f}**")
+                else:
+                    usage_row.append("**N/A**")
+            else:
+                usage_row.append("**N/A**")
+        scn_rows.append(usage_row)
+
+        scenarios_table = generate_table_markdown(scn_rows, methods, "Scenario")
     else:
         scenarios_table = ""
-        token_table = ""
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
     output_file = f"{RESULTS_DIR}/results.md"
@@ -232,20 +234,8 @@ def run_analyze(args, methods):
         if scenarios_table:
             f.write("\n## Scenarios\n\n")
             f.write(scenarios_table)
-            f.write("\n## Token Usage\n\n")
-            f.write(token_table)
             f.write("\n## Bar Chart\n\n")
             f.write("![Believability Bar Chart](result_bar.png)\n\n")
-            f.write("## Token Charts\n\n")
-            for tactic in [
-                "system_reconnaissance",
-                "scanning_lateral_propagation",
-                "persistence",
-                "data_reconnaissance_exfiltration",
-                "data_obfuscation_ransomware",
-            ]:
-                f.write(f"### {tactic.replace('_', ' ').title()}\n")
-                f.write(f"![{tactic} Tokens](result_tokens_{tactic}.png)\n\n")
 
     print(f"Results saved to: {output_file}")
 
