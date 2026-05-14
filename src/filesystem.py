@@ -1,3 +1,6 @@
+import os
+from datetime import datetime
+
 from utils import USER, motd
 
 filesystem = {
@@ -266,6 +269,126 @@ filesystem = {
         },
     }
 }
+
+
+class Filesystem:
+    def __init__(self, filesystem: dict):
+        self.fs = filesystem
+
+    def _now(self) -> str:
+        return datetime.now().strftime("%b %d %H:%M")
+
+    def _resolve(self, path: str) -> str:
+        """Resolve . and .. components in a path."""
+        parts = []
+        for part in path.split("/"):
+            if part == "" or part == ".":
+                continue
+            elif part == "..":
+                if parts:
+                    parts.pop()
+            else:
+                parts.append(part)
+        return "/" + "/".join(parts)
+
+    def _walk(self, path: str) -> dict:
+        """Resolve a path to its node, raising KeyError if not found."""
+        parts = [p for p in path.split("/") if p]
+        node = self.fs["/"]
+        for part in parts:
+            content = node.get("content")
+            if not isinstance(content, dict) or part not in content:
+                raise KeyError(f"Path not found: {path!r} (missing {part!r})")
+            node = content[part]
+        return node
+
+    def get(self, path: str) -> dict:
+        path = self._resolve(path)
+        if path == "/":
+            return self.fs["/"]
+        node = self._walk(path)
+        if callable(node.get("content")):
+            node["content"] = node["content"]()
+        return node
+
+    def is_path(self, token: str) -> bool:
+        if " " in token:
+            return (
+                token.startswith("/") or token.startswith("./") or token.startswith("../")
+            )
+        return (
+            token.startswith("/")
+            or token.startswith("./")
+            or token.startswith("../")
+            or "/" in token
+            or ("." in os.path.basename(token) and not token.startswith("-"))
+        )
+
+    def path_info(self, path: str) -> str:
+        try:
+            node = self.get(path)
+            if node.get("type") == "dir":
+                children = {
+                    name: {
+                        k: (v if k != "content" else "<content_trimmed>")
+                        for k, v in entry.items()
+                    }
+                    for name, entry in node.get("content", {}).items()
+                }
+                return f"Directory listing for {path}: {children}"
+            else:
+                return f"listing for {path}: {node}"
+        except KeyError:
+            return ""
+
+    def put(self, path: str, entry: dict) -> None:
+        """
+        Insert or merge entry at path, creating any missing parent dirs.
+
+        entry should contain at least 'type' ('file' or 'dir') and 'content'.
+        If the node already exists its fields are merged (new values win);
+        dict contents are deep-merged so existing children are preserved.
+        """
+        parts = [p for p in path.split("/") if p]
+        if not parts:
+            return  # refuse to overwrite root
+
+        name = parts[-1]
+        node = self.fs["/"]
+
+        # Walk / create intermediate dirs
+        for part in parts[:-1]:
+            if "content" not in node or not isinstance(node["content"], dict):
+                node["content"] = {}
+            if part not in node["content"]:
+                node["content"][part] = {
+                    "type": "dir",
+                    "content": {},
+                    "modified": self._now(),
+                }
+            node = node["content"][part]
+
+        if "content" not in node or not isinstance(node["content"], dict):
+            node["content"] = {}
+
+        existing = node["content"].get(name)
+        entry["modified"] = self._now()
+
+        if existing:
+            # Deep-merge dict contents (e.g. directory children)
+            if isinstance(existing.get("content"), dict) and isinstance(
+                entry.get("content"), dict
+            ):
+                existing["content"].update(entry["content"])
+            node["content"][name] = {**existing, **entry}
+        else:
+            # Sensible defaults for new nodes
+            if entry.get("type") == "dir" and "content" not in entry:
+                entry["content"] = {}
+            elif entry.get("type", "file") == "file" and "content" not in entry:
+                entry["content"] = ""
+            node["content"][name] = entry
+
 
 if __name__ == "__main__":
     import pickle

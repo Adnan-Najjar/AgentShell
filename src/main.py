@@ -1,3 +1,5 @@
+import re
+import shlex
 from datetime import datetime
 import json
 import os
@@ -7,10 +9,12 @@ from openai import APITimeoutError, RateLimitError, OpenAI
 from pydantic import BaseModel, ValidationError
 
 from tools import Tools
+from filesystem import Filesystem
 from utils import (
     API_KEY,
     BASE_URL,
     CURR_DIR,
+    ENV_VARS,
     HOSTNAME,
     IS_ROOT,
     LOG_DIR,
@@ -28,16 +32,67 @@ from utils import (
     extract_json,
     fix_json,
     log,
-    parse_shell,
 )
 
 
+OPERATORS = {"||", "&&", "|", ";"}
+_OP_PATTERN = re.compile(r"(\|\||&&|[|;&])")
+
+
+def parse_shell(query: str, cwd: str = CURR_DIR, state: dict | None = None, fs: Filesystem | None = None) -> tuple[list, set]:
+    all_vars = dict(ENV_VARS)
+    if state:
+        all_vars |= {k: v for k, v in state.items() if k not in ("filesystem", "IS_ROOT")}
+
+    def _expand(token: str) -> str:
+        for name, val in all_vars.items():
+            token = token.replace(f"${name}", val)
+        return token
+
+    try:
+        padded = _OP_PATTERN.sub(r" \1 ", query)
+        lexer = shlex.shlex(padded, posix=True)
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+
+        result: list[list[str]] = []
+        current: list[str] = []
+        paths: set[str] = set()
+
+        for token in lexer:
+            token = token.strip()
+            if not token:
+                continue
+
+            if token in OPERATORS:
+                if current:
+                    result.append(current)
+                    current = []
+                result.append([token])
+            else:
+                expanded = _expand(token)
+                if expanded.startswith("./"):
+                    resolved = os.path.normpath(os.path.join(cwd, expanded))
+                    paths.add(resolved)
+                    current.append(resolved)
+                else:
+                    if fs and fs.is_path(expanded):
+                        if expanded.startswith("/"):
+                            paths.add(expanded)
+                        else:
+                            paths.add(os.path.normpath(os.path.join(cwd, expanded)))
+                    current.append(expanded)
+
+        if current:
+            result.append(current)
+
+    except ValueError:
+        return [[query]], set()
+
+    return result, paths
+
+
 class OutputStructure(BaseModel):
-    user: str
-    home: str
-    hostname: str
-    pwd: str
-    is_root: bool
     filesystem: dict
     command_output: str
 
@@ -56,19 +111,20 @@ class Agent:
         )
 
         self.current_model = MODEL
-
         self.tools = Tools(id)
         self.history = []
 
         session_fs_path = f"{LOG_DIR}/{self.output}_filesystem.pkl"
+        fs = {}
         if os.path.exists(session_fs_path):
             with open(session_fs_path, "rb") as pklr:
-                self.filesystem = pickle.load(pklr)
+                fs: dict = pickle.load(pklr)
             log.info(f"Loaded session filesystem from {session_fs_path}")
         else:
             with open("data/filesystem.pkl", "rb") as pklr:
-                self.filesystem = pickle.load(pklr)
+                fs: dict = pickle.load(pklr)
             log.info("Loaded default filesystem")
+        self.filesystem = Filesystem(fs)
 
         self.current_state = {
             "HOSTNAME": HOSTNAME,
@@ -76,8 +132,8 @@ class Agent:
             "HOME": USER_DIR,
             "LOGNAME": USER,
             "PWD": CURR_DIR,
-            "_": "/bin/sh",  # args of last command
-            "?": "0",  # last command status
+            "_": "/bin/sh",
+            "?": "0",
             "IS_ROOT": IS_ROOT,
             "filesystem": {},
         }
@@ -104,113 +160,39 @@ Dynamic environment variables in JSON (you must return all of them and change th
 }}
 """
 
-    def _create_path(self, full_path: str, entry: dict) -> None:
-        """Create parent dirs and add entry."""
-        parts = [p for p in full_path.split("/") if p]
-        name = parts[-1]
-
-        now = datetime.now()
-        modified = now.strftime("%b %d %H:%M")
-
-        current = self.filesystem["/"]
-        for part in parts[:-1]:
-            if "content" not in current:
-                current["content"] = {}
-            if part not in current["content"]:
-                current["content"][part] = {
-                    "type": "dir",
-                    "content": {},
-                    "modified": modified,
-                }
-            current = current["content"][part]
-
-        if "content" not in current:
-            current["content"] = {}
-        entry["modified"] = modified
-        current["content"][name] = entry
-
     def save_to_fs(self, fs_changes: dict) -> None:
-        """Save filesystem changes from LLM - merge with existing entries."""
+        """Save filesystem changes from LLM."""
         if not fs_changes:
             return
-
-        now = datetime.now()
-        modified = now.strftime("%b %d %H:%M")
-
         for full_path, entry in fs_changes.items():
             if full_path == "/":
                 continue
-
-            parts = [p for p in full_path.split("/") if p]
-            if not parts:
-                continue
-
-            name = parts[-1]
-            parent_path = "/" + "/".join(parts[:-1])
-
-            try:
-                parent = self.tools.parse_path(self.filesystem, parent_path)
-                parent_content = parent.get("content")
-                if not isinstance(parent_content, dict):
-                    parent_content = {}
-                existing = parent_content.get(name, {})
-
-                if existing:
-                    # Merge: existing + new (new overwrites)
-                    if "content" in existing and "content" in entry:
-                        if isinstance(existing.get("content"), dict) and isinstance(
-                            entry.get("content"), dict
-                        ):
-                            existing["content"].update(entry.get("content", {}))
-                    merged = {**existing, **entry}
-                    if "content" not in parent:
-                        parent["content"] = {}
-                    parent["content"][name] = merged
-                    parent["content"][name]["modified"] = modified
-                    log.info(f"save_to_fs: merged {full_path}")
-                else:
-                    entry_type = entry.get("type", "file")
-                    if "content" not in parent:
-                        parent["content"] = {}
-                    if entry_type == "dir":
-                        entry["content"] = {}
-                    else:
-                        entry["content"] = entry.get("content", "")
-                    parent["content"][name] = entry
-                    parent["content"][name]["modified"] = modified
-                    log.info(f"save_to_fs: added {full_path}")
-            except FileNotFoundError:
-                self._create_path(full_path, entry)
-                log.info(f"save_to_fs: created and saved {full_path}")
+            self.filesystem.put(full_path, entry)
+            log.info(f"save_to_fs: saved {full_path}")
 
     def save_session_history(self):
         """Save current history state to .bash_history file."""
         now = datetime.now()
-        self.save_to_fs(
+        self.filesystem.put(
+            f"{self.current_state['HOME']}/.bash_history",
             {
-                f"{self.current_state["USER_DIR"]}/.bash_history": {
-                    "type": "file",
-                    "permissions": "-rw-------",
-                    "owner": USER,
-                    "group": USER,
-                    "modified": now.strftime("%Y-%m-%d"),
-                    "content": '\n'.join(self.history),
-                }
-            }
+                "type": "file",
+                "permissions": "-rw-------",
+                "owner": USER,
+                "group": USER,
+                "modified": now.strftime("%Y-%m-%d"),
+                "content": "\n".join(self.history),
+            },
         )
-        pass
 
     def save_session_filesystem(self) -> str:
         """Save current filesystem state to per-session file (not global)."""
         self.save_session_history()
 
-        import os
-        from utils import LOG_DIR
-
         os.makedirs(LOG_DIR, exist_ok=True)
         filepath = f"{LOG_DIR}/{self.output}_filesystem.pkl"
         with open(filepath, "wb") as pklw:
-            pickle.dump(self.filesystem, pklw)
+            pickle.dump(self.filesystem.fs, pklw)
         log.info(f"Saved session filesystem to {filepath}")
         return filepath
 
@@ -240,18 +222,18 @@ Dynamic environment variables in JSON (you must return all of them and change th
                     log.info(f"chat_completion: LLM returned {content}")
 
                     try:
-                        data = json.loads(content)
+                        data = json.loads(content, strict=False)
                     except json.JSONDecodeError as e:
                         log.warning(f"JSON decode failed: {e}, trying fix_json...")
                         try:
                             fixed = fix_json(content)
-                            data = json.loads(fixed)
+                            data = json.loads(fixed, strict=False)
                         except json.JSONDecodeError as e2:
                             log.warning(
                                 f"fix_json failed: {e2}, trying extract_json..."
                             )
                             fixed = extract_json(content)
-                            data = json.loads(fixed)
+                            data = json.loads(fixed, strict=False)
 
                     self.prompt_tokens = (
                         completion.usage.prompt_tokens if completion.usage else 0
@@ -263,13 +245,15 @@ Dynamic environment variables in JSON (you must return all of them and change th
                         log.error(f"LLM error: {e}")
                         return ""
 
-                    self.current_state = {
-                        "USER": structured_output.user,
-                        "HOME": structured_output.home,
-                        "HOSTNAME": structured_output.hostname,
-                        "PWD": structured_output.pwd,
-                        "IS_ROOT": bool(structured_output.is_root),
-                    }
+                    self.current_state.update(
+                        {
+                            "USER": structured_output.user,
+                            "HOME": structured_output.home,
+                            "HOSTNAME": structured_output.hostname,
+                            "PWD": structured_output.pwd,
+                            "IS_ROOT": bool(structured_output.is_root),
+                        }
+                    )
 
                     self.save_to_fs(structured_output.filesystem)
 
@@ -281,10 +265,10 @@ Dynamic environment variables in JSON (you must return all of them and change th
                         try:
                             try:
                                 fixed = fix_json(content)
-                                data = json.loads(fixed)
+                                data = json.loads(fixed, strict=False)
                             except json.JSONDecodeError:
                                 fixed = extract_json(content)
-                                data = json.loads(fixed)
+                                data = json.loads(fixed, strict=False)
                             structured_output = OutputStructure(**data)
                         except Exception as fallback_error:
                             log.warning(f"Fallback also failed: {fallback_error}")
@@ -294,13 +278,12 @@ Dynamic environment variables in JSON (you must return all of them and change th
                     log.warning(f"LLM: attempt {attempt + 1} failed (Pydantic): {e}")
                     retry_info = f"\n\nMissing/invalid fields: {e}. Provide: user, home, hostname, pwd, is_root, filesystem, command_output."
 
-                except APITimeoutError as e:
-                    log.warning(f"LLM: Timed Out")
-                    retry_info = f""
+                except APITimeoutError:
+                    log.warning("LLM: Timed Out")
+                    retry_info = ""
 
-                except RateLimitError as e:
+                except RateLimitError:
                     log.warning(f"Rate limit hit on {self.current_model}")
-
                     if self.current_model == MODEL:
                         self.current_model = FALLBACK_MODEL
                         self.client = OpenAI(
@@ -312,10 +295,10 @@ Dynamic environment variables in JSON (you must return all of them and change th
                         log.info(f"Switching to fallback model: {self.current_model}")
                     else:
                         log.warning("Fallback model also rate-limited")
-                    retry_info = f""
+                    retry_info = ""
 
             return ""
-        except:
+        except Exception:
             return ""
 
     def handle_command(self, command: str, args: list) -> str:
@@ -332,15 +315,6 @@ Dynamic environment variables in JSON (you must return all of them and change th
             case "apt" | "apt-get":
                 return self.tools.handle_apt(args)
 
-            case "pwd":
-                return self.current_state["PWD"]
-
-            case "whoami":
-                return self.current_state["USER"]
-
-            case "hostname":
-                return self.current_state["HOSTNAME"]
-
             case "history":
                 return self.handle_history(args)
 
@@ -352,8 +326,7 @@ Dynamic environment variables in JSON (you must return all of them and change th
                     if fs_changes:
                         self.save_to_fs(fs_changes)
                     return out
-                else:
-                    return ""
+                return ""
 
             case "wget":
                 out, fs_changes = self.tools.handle_wget(
@@ -363,8 +336,7 @@ Dynamic environment variables in JSON (you must return all of them and change th
                     if fs_changes:
                         self.save_to_fs(fs_changes)
                     return out
-                else:
-                    return ""
+                return ""
 
             case _:
                 valid, error_msg = self.tools.validate_command(command)
@@ -387,75 +359,69 @@ Dynamic environment variables in JSON (you must return all of them and change th
 
         self.history.append(query)
 
-        parsed_cmd: list[list[str]] = parse_shell(query)
+        parsed_cmd, paths = parse_shell(query, self.current_state["PWD"], self.current_state, self.filesystem)
         if not parsed_cmd:
             return "syntax error"
 
-        # Get args of the last command
-        self.current_state["_"] = parsed_cmd[-1][-1]
-
-        # if it was nested commands
-        paths = set()
+        # Last arg of the last real command (not an operator token)
+        last_cmd = next(
+            (t for t in reversed(parsed_cmd) if t[0] not in OPERATORS), None
+        )
+        if last_cmd:
+            self.current_state["_"] = last_cmd[-1]
         cmd_flags = {}
         cmd_outputs = ""
+
         for token in parsed_cmd:
             command = token[0]
-            args_raw = token[1:]
+            if command in OPERATORS:
+                continue
 
-            # Expand environment variables
-            args = self.tools.handle_env_vars(args_raw, self.current_state)
-
-            # Extract paths from args
-            for arg in args:
-                if arg.startswith("/") or arg.startswith("./") or arg.startswith("../"):
-                    paths.add(arg)
-                elif arg and "/" in arg and not arg.startswith("-"):
-                    paths.add(arg)
-
-            # Extract command and flags
+            args = token[1:]
             cmd_flags = extract_command_flags(args)
             cmd_flags["command"] = command
 
-            # ====  handled manually ====
             command_output = self.handle_command(command, args)
             if command_output:
                 cmd_outputs += f"Output of {' '.join(token)} is {command_output}"
 
-        # ====  handled by AI   ====
-        # Get info about the command
-        docs = self.tools.get_docs(cmd_flags)
+        log.info(cmd_outputs)
 
-        # Get the current state/environment
+        if cmd_flags:
+            docs = self.tools.get_docs(cmd_flags)
+        else:
+            docs = ""
         state = self._format_state()
         log.info(state)
 
-        # Get info about files/dirs in the command
-        dirs = "Directory listing for "
         if not paths:
-            path = self.current_state["PWD"]
-            dirs += f"{path} {self.tools.parse_path(self.filesystem, path).get('content', {})}\n"
+            dirs = self._path_info(self.current_state["PWD"])
         else:
-            for path in paths:
-                dirs += f"{path}: {self.tools.parse_path(self.filesystem, path).get('content', {})}\n"
-        dirs += "\n(If directory or files are empty generate plausible ones instead)"
+            dirs = "\n".join(self._path_info(p) for p in paths if p != "")
+        dirs += (
+            "\n\n(If directory or files are empty, generate plausible content instead)"
+        )
 
         log.info(dirs)
 
         prompt = f"{state}\n\n{docs}\n{dirs}\n{cmd_outputs}\nUser Query: {query}"
-
         output = self.chat_completion(prompt)
 
         self.shell_prompt = self._shell_prompt(self.current_state)
-
         return output
 
 
 if __name__ == "__main__":
     log.info("Starting Agent shell...")
     agent = Agent()
-    while True:
-        q = input(agent.shell_prompt)
-        if q != "":
-            response = agent.chat(q)
-            if response != "":
-                print(response)
+    try:
+        while True:
+            q = input(agent.shell_prompt)
+            if q != "":
+                response = agent.chat(q)
+                if response != "":
+                    print(response)
+    except (KeyboardInterrupt, EOFError):
+        print()
+        agent.save_session_filesystem()
+        log.info("Session saved. Goodbye.")

@@ -238,8 +238,7 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
                 return help_menu
 
     def handle_cd(self, args: list, current_state: dict, filesystem: dict) -> str:
-        target = args[1] if len(args) > 1 else "~"
-
+        target = args[0] if len(args) > 0 else "~"
         current = current_state["PWD"]
         user_home = current_state["HOME"]
 
@@ -253,37 +252,17 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
             else:
                 full_path = os.path.join(current, target)
             new_path = os.path.normpath(full_path)
-
-            # Validate path exists in filesystem
             try:
-                self.parse_path(filesystem, new_path)
-            except FileNotFoundError:
+                node = filesystem.get(new_path)
+                if node.get("type") != "dir":
+                    return f"cd: {target}: Not a directory"
+            except KeyError:
                 return f"cd: {target}: No such file or directory"
 
         self._prev_dir = current
         current_state["PWD"] = new_path
         log.info(f"cd: {current} -> {new_path}")
         return ""
-
-    def parse_path(self, filesystem: dict, path: str) -> dict:
-        """Validate path exists in filesystem."""
-        if path == "/":
-            return filesystem["/"]
-
-        parts = [p for p in path.split("/") if p]
-        current = filesystem["/"]
-
-        for part in parts:
-            if current.get("type") == "symlink":
-                target = current.get("target", "/")
-                current = self.parse_path(filesystem, target)
-
-            content = current.get("content", {})
-            if part not in content:
-                return {}
-            current = content[part]
-
-        return current
 
     def handle_env_vars(self, args: list, current_state: dict) -> list:
         """
@@ -309,6 +288,7 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
         return expanded
 
     def _is_blocked_host(self, arg) -> bool:
+        return False # WARN: REMOVE IN DEPLOYMENT
         try:
             parsed = urlparse(arg)
             host = parsed.hostname or arg
@@ -339,9 +319,11 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
         parsed = urlparse(url)
 
         if parsed.scheme not in ("http", "https"):
+            log.warn(f"Download blocked: unsupported scheme {parsed.scheme!r}")
             return None
 
         if not parsed.hostname or self._is_blocked_host(parsed.hostname):
+            log.warn(f"Download blocked: host {parsed.hostname!r} is local/private")
             return None
 
         # User-Agent based on command
@@ -365,6 +347,7 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
                 if 300 <= response.status_code < 400:
                     location = response.headers.get("Location")
                     if not location:
+                        log.warn("No location header")
                         return None
 
                     next_url = urljoin(current_url, location)
@@ -373,12 +356,18 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
                     if not parsed_next.hostname or self._is_blocked_host(
                         parsed_next.hostname
                     ):
+                        log.warn(
+                            f"Redirect blocked: host {parsed_next.hostname!r} is local/private"
+                        )
                         return None
 
                     current_url = next_url
                     continue
 
                 if response.status_code != 200:
+                    log.warn(
+                        f"Download failed: HTTP {response.status_code} for {current_url}"
+                    )
                     return None
 
                 content = response.content
@@ -392,9 +381,11 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
                     "size": len(content),
                 }
 
+            log.warn(f"Download failed: too many redirects for {url}")
             return None
 
-        except Exception:
+        except Exception as e:
+            log.warn(f"Download failed: {e}")
             return None
 
     def handle_wget(self, args: list, pwd: str = "/root") -> tuple[str, dict]:
@@ -408,8 +399,13 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
 
             if arg.startswith(("http://", "https://", "ftp://")):
                 url = arg
-            elif not arg.startswith("-") and "." in arg:
+            elif not arg.startswith("-") and ("." in arg or "/" in arg or ":" in arg):
                 url = "http://" + arg
+            elif arg in (">", ">>"):
+                stdout = False
+                if i + 1 < len(args):
+                    output_file = args[i + 1]
+                    i += 1
             elif arg == "-O":
                 if i + 1 < len(args):
                     if args[i + 1] == "-":
@@ -512,8 +508,13 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
 
             if arg.startswith(("http://", "https://", "ftp://")):
                 url = arg
-            elif not arg.startswith("-") and "." in arg:
+            elif not arg.startswith("-") and ("." in arg or "/" in arg or ":" in arg):
                 url = "http://" + arg
+            elif arg in (">", ">>"):
+                stdout = False
+                if i + 1 < len(args):
+                    output_file = args[i + 1]
+                    i += 1
             elif arg == "-o":
                 if i + 1 < len(args):
                     if args[i + 1] == "-":

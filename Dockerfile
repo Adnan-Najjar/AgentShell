@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*;
 
+RUN ln -sf /bin/bash /bin/sh # bash as default
+
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh;
 ENV PATH="/root/.local/bin:$PATH"

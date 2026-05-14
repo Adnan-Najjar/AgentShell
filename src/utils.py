@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import shlex
 import textwrap
 import requests
 import time
@@ -36,7 +35,7 @@ IS_ROOT = False
 
 PUBLIC_IP = requests.get("https://api.ipify.org").text
 # Random IP based on a subnet
-SUBNET = "10.10.0.0/16"
+SUBNET = "172.18.0.0/24"
 net = ipaddress.ip_network(SUBNET)
 hosts = list(net.hosts())
 PRIVATE_IP, LAST_LOGIN_IP = random.sample([str(ip) for ip in hosts], 2)
@@ -80,7 +79,7 @@ ACCEPTED_PASSWORDS = {USER, "root", "admin", "password", "123456"}
 
 SYSTEM_PROMPT = f"""
 You are a fully configured Ubuntu server 23.04 system. For each command, return the output of that command with the given state/environment.
-these are the static environment variables:
+Your Environment variables:
 {ENV_VARS}
 Your private IP is: {PRIVATE_IP}
 Your public IP is: {PUBLIC_IP}
@@ -93,22 +92,24 @@ Rules:
 - Never say "No such file..."; generate plausible output.
 
 === STATE UPDATE RULES ===
-- The "user", "home", "hostname", "pwd", "is_root" fields in your JSON response are STATE fields.
-- You MUST UPDATE these state fields when commands change them.
-- Examples:
-  - If "cd /etc" runs, pwd MUST become "/etc"
-  - If "hostname myserver" runs, hostname MUST become "myserver"
-  - If "su user" runs, user MUST become "user" and is_root MUST become false
-  - If no state-changing command runs, PRESERVE existing values from the input state
-- Only change state fields when they actually change; otherwise keep existing values.
+- The "user", "home", "hostname", "pwd", "is_root" fields are STATE fields.
+- ONLY change these fields when a command DIRECTLY modifies them:
+
+STATE-CHANGING COMMANDS:
+  - "cd /dir" -> pwd MUST become "/dir"
+  - "hostname NEWNAME" -> hostname MUST become "NEWNAME"
+  - "su USERNAME" -> user MUST become "USERNAME", is_root MUST become false
+  - "exit" or "logout" -> user becomes "root" (if su'd), is_root becomes true
+IMPORTANT: don't change the state if the user didn't explicitly run a command to do so.
 
 Filesystem rules:
 - If no files are new, modified, or missing, return EMPTY "filesystem": {{}}.
 - ONLY include NEW, MODIFIED, or MISSING entries, return empty "filesystem" otherwise.
 - Maintain full hierarchical structure for each changed path.
-- If file: "type" should be "file" and the "content" is a string of the file content.
+- If file: "type" should be "file" and the "content" MUST be a string of the file content (NEVER omit content field).
 - If directory, "type" should be "dir" and the "content" is an object of the children added.
 - The command_output must be a string
+- IMPORTANT: Every file entry MUST have a "content" field with the file's actual content as a string.
 
 Structure:
 "filesystem": {{
@@ -119,7 +120,7 @@ Structure:
       "group": "<group>",
       "modified": "",
       "size": "<expected_size_in_MB>",
-      "content": "<file content>"
+      "content": "<file content as string OR empty string if no content>"
     }}
 }}
 """
@@ -245,40 +246,6 @@ def run_cmd_ssh(cmd: str, port: str, hostname="localhost") -> str:
         return "error"
 
 
-def parse_shell(query: str) -> list[list[str]]:
-    """
-    Parses a shell-like command string into a sequential list of commands and operators.
-    Each command is a list of tokens; operators (|, ||, &&, ;, >, <, >>, <<) are preserved as strings.
-    """
-
-    try:
-        # Pre-process: add spaces around operators if missing
-        for op in ["||", "&&", "|", ";", ">>", ">", "<<", "<"]:
-            query = query.replace(op, f" {op} ")
-
-        lexer = shlex.shlex(query, posix=True)
-        lexer.whitespace_split = True
-        lexer.commenters = ""
-
-        result = []
-        current = []
-
-        for token in lexer:
-            if token in {"|", "||", "&&", ";", ">>", ">", "<<", "<"}:
-                if current:
-                    result.append(current)
-                    current = []
-            else:
-                current.append(token)  # command
-
-        if current:
-            result.append(current)
-    except:
-        return [[]]
-
-    return result
-
-
 def extract_command_flags(args: list) -> dict:
     """
     Extract flags from a list of args
@@ -312,6 +279,8 @@ def fix_json(text: str) -> str:
         if char == '"' and (i == 0 or text[i - 1] != "\\"):
             in_string = not in_string
             result.append(char)
+        elif char == "\t" and in_string:
+            result.append("\\t")
         elif char == "\n" and in_string:
             result.append("\\n")
         elif char == "\\" and i + 1 < len(text):
@@ -344,7 +313,7 @@ def extract_json(text: str) -> str:
     # Try brace matching first
     result = fix_json(text)
     try:
-        json.loads(result)
+        json.loads(result, strict=False)
         return result
     except json.JSONDecodeError:
         pass
@@ -355,7 +324,7 @@ def extract_json(text: str) -> str:
     if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
         result = text[first_brace : last_brace + 1]
         try:
-            json.loads(result)
+            json.loads(result, strict=False)
             return result
         except json.JSONDecodeError:
             pass

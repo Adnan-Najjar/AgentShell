@@ -206,7 +206,9 @@ def run_analyze(args, methods):
         usage_row = ["**Tokens/1%**"]
         for method in methods:
             if method in scenarios_results:
-                overall = scenarios_results[method].get("_overall", {}).get("accuracy", 0)
+                overall = (
+                    scenarios_results[method].get("_overall", {}).get("accuracy", 0)
+                )
                 tokens = scenarios_results[method].get("_tokens", {}).get("_total", 0)
                 if overall > 0:
                     ratio = tokens / overall
