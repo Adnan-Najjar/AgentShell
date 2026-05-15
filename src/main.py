@@ -28,7 +28,6 @@ from utils import (
     TIMEOUT,
     USER,
     USER_DIR,
-    extract_command_flags,
     extract_json,
     fix_json,
     log,
@@ -39,10 +38,17 @@ OPERATORS = {"||", "&&", "|", ";"}
 _OP_PATTERN = re.compile(r"(\|\||&&|[|;&])")
 
 
-def parse_shell(query: str, cwd: str = CURR_DIR, state: dict | None = None, fs: Filesystem | None = None) -> tuple[list, set]:
+def parse_shell(
+    query: str,
+    cwd: str = CURR_DIR,
+    state: dict | None = None,
+    fs: Filesystem | None = None,
+) -> tuple[list, set]:
     all_vars = dict(ENV_VARS)
     if state:
-        all_vars |= {k: v for k, v in state.items() if k not in ("filesystem", "IS_ROOT")}
+        all_vars |= {
+            k: v for k, v in state.items() if k not in ("filesystem", "IS_ROOT")
+        }
 
     def _expand(token: str) -> str:
         for name, val in all_vars.items():
@@ -93,6 +99,11 @@ def parse_shell(query: str, cwd: str = CURR_DIR, state: dict | None = None, fs: 
 
 
 class OutputStructure(BaseModel):
+    user: str
+    home: str
+    hostname: str
+    pwd: str
+    is_root: str
     filesystem: dict
     command_output: str
 
@@ -359,7 +370,9 @@ Dynamic environment variables in JSON (you must return all of them and change th
 
         self.history.append(query)
 
-        parsed_cmd, paths = parse_shell(query, self.current_state["PWD"], self.current_state, self.filesystem)
+        parsed_cmd, paths = parse_shell(
+            query, self.current_state["PWD"], self.current_state, self.filesystem
+        )
         if not parsed_cmd:
             return "syntax error"
 
@@ -370,41 +383,37 @@ Dynamic environment variables in JSON (you must return all of them and change th
         if last_cmd:
             self.current_state["_"] = last_cmd[-1]
         cmd_flags = {}
+        user_query = ""
         cmd_outputs = ""
 
         for token in parsed_cmd:
+            user_query += " ".join(token)
             command = token[0]
             if command in OPERATORS:
                 continue
 
             args = token[1:]
-            cmd_flags = extract_command_flags(args)
-            cmd_flags["command"] = command
-
             command_output = self.handle_command(command, args)
             if command_output:
                 cmd_outputs += f"Output of {' '.join(token)} is {command_output}"
 
         log.info(cmd_outputs)
 
-        if cmd_flags:
-            docs = self.tools.get_docs(cmd_flags)
-        else:
-            docs = ""
         state = self._format_state()
         log.info(state)
 
         if not paths:
-            dirs = self._path_info(self.current_state["PWD"])
+            dirs = self.filesystem.path_info(self.current_state["PWD"])
         else:
-            dirs = "\n".join(self._path_info(p) for p in paths if p != "")
+            dirs = "\n".join(self.filesystem.path_info(p) for p in paths if p != "")
         dirs += (
             "\n\n(If directory or files are empty, generate plausible content instead)"
         )
 
         log.info(dirs)
 
-        prompt = f"{state}\n\n{docs}\n{dirs}\n{cmd_outputs}\nUser Query: {query}"
+        prompt = f"{state}\n{dirs}\n{cmd_outputs}\nUser Query: {user_query}"
+
         output = self.chat_completion(prompt)
 
         self.shell_prompt = self._shell_prompt(self.current_state)

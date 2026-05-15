@@ -44,77 +44,6 @@ class Tools:
         except:
             return False, "syntax error"
 
-    def _help_page(self, command: str, option: str) -> str:
-        try:
-            result = subprocess.run(
-                [command, "--help"], capture_output=True, text=True, timeout=10
-            )
-            if result.returncode != 0:
-                log.info(f"RAG: No help page found for {command} {option}")
-                return ""
-            help_page = result.stdout
-
-            help_re = re.compile(
-                rf"^\s*(-+[a-zA-Z]+, )?{option}.*?^\s*(?=-)", re.MULTILINE | re.DOTALL
-            )
-            help_page = help_re.search(help_page)
-            if help_page:
-                return help_page.group()
-        except subprocess.TimeoutExpired:
-            log.info(f"RAG: Timeout fetching help for {command} {option}")
-        except Exception as e:
-            log.info(f"RAG: Error fetching help for {command} {option}: {e}")
-
-        return ""
-
-    def _man_page(self, command: str, option: str = "") -> str:
-        try:
-            result = subprocess.run(
-                ["man", "-P", "cat", command],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                env={"MANWIDTH": "999"},
-            )
-            if result.returncode != 0:
-                log.info(f"RAG: No man page found for {command} {option}")
-                return ""
-            man_page = result.stdout
-
-            if option == "":
-                # Only get core info lke SYNOPSIS and DESCRIPTION
-                core = re.search(
-                    r"^SYNOPSIS.*?^\s*(?=-)", man_page, re.MULTILINE | re.DOTALL
-                )
-                return core.group() if core else ""
-            man_re = re.compile(
-                rf"^\s*(-+[a-zA-Z]+, )?{option}.*?^\s*(?=-)", re.MULTILINE | re.DOTALL
-            )
-            man_page = man_re.search(man_page)
-            if man_page:
-                return man_page.group()
-        except subprocess.TimeoutExpired:
-            log.info(f"RAG: Timeout fetching man page for {command} {option}")
-        except Exception as e:
-            log.info(f"RAG: Error fetching man page for {command} {option}: {e}")
-
-        return ""
-
-    def get_docs(self, command: dict) -> str:
-        log.info(f"RAG: Request for {command} commands")
-
-        output = self._man_page(command["command"])
-        for option in command["flags"]:
-            if option:
-                output += self._help_page(command["command"], option)
-                output += "\n"
-                output += self._man_page(command["command"], option)
-                output += "\n"
-
-        output = re.sub(r"\s{2,}", " ", output)
-        log.info(f"RAG: Returned {output}")
-        return output
-
     def handle_env(self, args: list, current_state: dict) -> str:
         log.info(f"env: {args}")
 
@@ -288,7 +217,7 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
         return expanded
 
     def _is_blocked_host(self, arg) -> bool:
-        return False # WARN: REMOVE IN DEPLOYMENT
+        return False  # WARN: REMOVE IN DEPLOYMENT
         try:
             parsed = urlparse(arg)
             host = parsed.hostname or arg

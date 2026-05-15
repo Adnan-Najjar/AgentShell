@@ -246,29 +246,6 @@ def run_cmd_ssh(cmd: str, port: str, hostname="localhost") -> str:
         return "error"
 
 
-def extract_command_flags(args: list) -> dict:
-    """
-    Extract flags from a list of args
-    Returns a dict with empty command (to be set by caller) and flags split
-    """
-
-    if not args:
-        return {"command": "", "flags": []}
-
-    flags = []
-
-    for token in args:
-        if token.startswith("--"):
-            flags.append(token)
-        elif token.startswith("-") and len(token) > 1:
-            flags.extend([f"-{c}" for c in token[1:]])
-
-    return {
-        "command": "",
-        "flags": flags,
-    }
-
-
 def fix_json(text: str) -> str:
     """Try to fix malformed JSON with unescaped newlines in strings."""
     result = []
