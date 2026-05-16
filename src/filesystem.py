@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime
 
 from utils import USER, motd
@@ -311,7 +312,11 @@ class Filesystem:
             node["content"] = node["content"]()
         return node
 
+    _IP_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
+
     def is_path(self, token: str) -> bool:
+        if self._IP_RE.match(token):
+            return False
         if " " in token:
             return (
                 token.startswith("/") or token.startswith("./") or token.startswith("../")

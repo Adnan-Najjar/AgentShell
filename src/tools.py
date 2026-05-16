@@ -24,11 +24,16 @@ class Tools:
             tokens = shlex.split(command)
             cmd = tokens[0] if tokens else ""
 
-            # Check command exists
             if shutil.which(cmd) is None:
-                return False, f"bash: {cmd}: command not found"
+                proc = subprocess.run(
+                    ["bash", "-c", f"command -v {cmd}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if proc.returncode != 0:
+                    return False, f"bash: {cmd}: command not found"
 
-            # Check syntax safely
             proc = subprocess.run(
                 ["bash", "-n"],
                 input=command,
@@ -165,6 +170,31 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
                         continue
             else:
                 return help_menu
+
+    def handle_hostname(self, args: list, current_state: dict) -> str:
+        log.info(f"hostname: {args}")
+        if args:
+            current_state["HOSTNAME"] = args[0]
+        return current_state["HOSTNAME"] + "\n"
+
+    def handle_su(self, args: list, current_state: dict) -> str:
+        log.info(f"su: {args}")
+        from utils import ACCEPTED_USERS
+
+        target = args[0] if args else "root"
+        if target not in ACCEPTED_USERS:
+            return f"su: user {target} does not exist\n"
+        current_state["USER"] = target
+        current_state["HOME"] = "/root" if target == "root" else f"/home/{target}"
+        current_state["IS_ROOT"] = target == "root"
+        return ""
+
+    def handle_exit(self, args: list, current_state: dict) -> str:
+        log.info(f"exit: {args}")
+        current_state["USER"] = "user"
+        current_state["HOME"] = "/home/user"
+        current_state["IS_ROOT"] = False
+        return ""
 
     def handle_cd(self, args: list, current_state: dict, filesystem: dict) -> str:
         target = args[0] if len(args) > 0 else "~"

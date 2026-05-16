@@ -20,7 +20,7 @@
   "df -h": "(Filesystem|Use%)",
   "ls /": "(bin|dev|etc|home|proc|sys|usr|var)",
   "ls -la /": "(total|^d)",
-  "env": "[A-Z][A-Z_]*=",
+  "env": "[A-Z_]+=",
   "dmesg": "(Linux|kernel|Initializing)",
   "mount": "type",
   "groups": "^[a-zA-Z0-9_ ]+$",

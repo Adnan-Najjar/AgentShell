@@ -21,7 +21,7 @@ FALLBACK_API_KEY = os.getenv("FALLBACK_API_KEY", "dummy_key")
 
 TIMEOUT = 240  # 4 minutes
 MAX_VALIDATION_RETRIES = 3
-MAX_SCHEMA_RETRIES = 0
+MAX_SCHEMA_RETRIES = 2
 
 MODEL_NAME = MODEL.replace(".", "-").split(":")[0]
 if "/" in MODEL_NAME:
@@ -43,7 +43,7 @@ PRIVATE_IP, LAST_LOGIN_IP = random.sample([str(ip) for ip in hosts], 2)
 SSH_BANNER = "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.3"
 MOTD = textwrap.dedent(
     f"""\
-    Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 5.15.0-91-generic x86_64)
+    Welcome to Ubuntu 23.04.5 LTS (GNU/Linux 5.15.0-91-generic x86_64)
 
      * Documentation:  https://help.ubuntu.com
      * Management:     https://landscape.canonical.com
@@ -77,12 +77,14 @@ ENV_VARS = {
 ACCEPTED_USERS = {USER, "root", "admin"}
 ACCEPTED_PASSWORDS = {USER, "root", "admin", "password", "123456"}
 
+ENV_VARS_STR = "\n".join(
+    f"{k}={v}" for k, v in ENV_VARS.items() if k not in ("0", "#", "-")
+)
+
 SYSTEM_PROMPT = f"""
-You are a fully configured Ubuntu server 23.04 system. For each command, return the output of that command with the given state/environment.
-Your Environment variables:
-{ENV_VARS}
-Your private IP is: {PRIVATE_IP}
-Your public IP is: {PUBLIC_IP}
+You are an Ubuntu 23.04 server simulator running at {PRIVATE_IP} (public: {PUBLIC_IP}).
+Environment:
+{ENV_VARS_STR}
 
 Rules:
 - Do NOT give up.
@@ -90,17 +92,6 @@ Rules:
 - Never return empty output.
 - Never say "command not found"; generate plausible output. 
 - Never say "No such file..."; generate plausible output.
-
-=== STATE UPDATE RULES ===
-- The "user", "home", "hostname", "pwd", "is_root" fields are STATE fields.
-- ONLY change these fields when a command DIRECTLY modifies them:
-
-STATE-CHANGING COMMANDS:
-  - "cd /dir" -> pwd MUST become "/dir"
-  - "hostname NEWNAME" -> hostname MUST become "NEWNAME"
-  - "su USERNAME" -> user MUST become "USERNAME", is_root MUST become false
-  - "exit" or "logout" -> user becomes "root" (if su'd), is_root becomes true
-IMPORTANT: don't change the state if the user didn't explicitly run a command to do so.
 
 Filesystem rules:
 - If no files are new, modified, or missing, return EMPTY "filesystem": {{}}.
@@ -111,17 +102,23 @@ Filesystem rules:
 - The command_output must be a string
 - IMPORTANT: Every file entry MUST have a "content" field with the file's actual content as a string.
 
-Structure:
-"filesystem": {{
-    "<full_path>": {{
-      "type": "<type>",
-      "permissions": "<unix_permission_string>",
-      "owner": "<owner>",
-      "group": "<group>",
-      "modified": "",
-      "size": "<expected_size_in_MB>",
-      "content": "<file content as string OR empty string if no content>"
-    }}
+Return ONLY:
+{{
+  "filesystem": {{}},
+  "command_output": "..."
+}}
+
+Filesystem structure (if non-empty):
+{{
+  "<full_path>": {{
+    "type": "<type>",
+    "permissions": "<unix_permission_string>",
+    "owner": "<owner>",
+    "group": "<group>",
+    "modified": "",
+    "size": "<expected_size_in_MB>",
+    "content": "<file content as string>"
+  }}
 }}
 """
 
@@ -261,8 +258,12 @@ def fix_json(text: str) -> str:
         elif char == "\n" and in_string:
             result.append("\\n")
         elif char == "\\" and i + 1 < len(text):
-            result.append(char)
-            result.append(text[i + 1])
+            nxt = text[i + 1]
+            if nxt in '"\\/bfnrtu':
+                result.append(char)
+                result.append(nxt)
+            else:
+                result.append(nxt)
             i += 1
         else:
             result.append(char)

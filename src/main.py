@@ -14,7 +14,6 @@ from utils import (
     API_KEY,
     BASE_URL,
     CURR_DIR,
-    ENV_VARS,
     HOSTNAME,
     IS_ROOT,
     LOG_DIR,
@@ -34,77 +33,24 @@ from utils import (
 )
 
 
-OPERATORS = {"||", "&&", "|", ";"}
-_OP_PATTERN = re.compile(r"(\|\||&&|[|;&])")
-
-
-def parse_shell(
-    query: str,
-    cwd: str = CURR_DIR,
-    state: dict | None = None,
-    fs: Filesystem | None = None,
-) -> tuple[list, set]:
-    all_vars = dict(ENV_VARS)
-    if state:
-        all_vars |= {
-            k: v for k, v in state.items() if k not in ("filesystem", "IS_ROOT")
-        }
-
-    def _expand(token: str) -> str:
-        for name, val in all_vars.items():
-            token = token.replace(f"${name}", val)
-        return token
-
-    try:
-        padded = _OP_PATTERN.sub(r" \1 ", query)
-        lexer = shlex.shlex(padded, posix=True)
-        lexer.whitespace_split = True
-        lexer.commenters = ""
-
-        result: list[list[str]] = []
-        current: list[str] = []
-        paths: set[str] = set()
-
-        for token in lexer:
-            token = token.strip()
-            if not token:
-                continue
-
-            if token in OPERATORS:
-                if current:
-                    result.append(current)
-                    current = []
-                result.append([token])
-            else:
-                expanded = _expand(token)
-                if expanded.startswith("./"):
-                    resolved = os.path.normpath(os.path.join(cwd, expanded))
-                    paths.add(resolved)
-                    current.append(resolved)
-                else:
-                    if fs and fs.is_path(expanded):
-                        if expanded.startswith("/"):
-                            paths.add(expanded)
-                        else:
-                            paths.add(os.path.normpath(os.path.join(cwd, expanded)))
-                    current.append(expanded)
-
-        if current:
-            result.append(current)
-
-    except ValueError:
-        return [[query]], set()
-
-    return result, paths
+OPERATORS = {"||", "&&", ";"}
+COMPOUND_KEYWORDS = {
+    "for",
+    "while",
+    "until",
+    "if",
+    "case",
+    "elif",
+    "then",
+    "else",
+    "function",
+    "{",
+}
+_OP_PATTERN = re.compile(r"(\|\||&&|[;&])")
 
 
 class OutputStructure(BaseModel):
-    user: str
-    home: str
-    hostname: str
-    pwd: str
-    is_root: str
-    filesystem: dict
+    filesystem: dict = {}
     command_output: str
 
 
@@ -158,18 +104,67 @@ class Agent:
         return prompt.replace(state["HOME"], "~", 1)
 
     def _format_state(self) -> str:
-        return f"""
-Dynamic environment variables in JSON (you must return all of them and change them if needed):
-{{
-"user": "{self.current_state["USER"]}",
-"home": "{self.current_state["HOME"]}",
-"hostname": "{self.current_state["HOSTNAME"]}",
-"pwd": "{self.current_state["PWD"]}",
-"is_root": "{self.current_state["IS_ROOT"]}",
-"filesystem": {{}},
-"command_output": "<your_output_here>"
-}}
-"""
+        return f"State: user={self.current_state['USER']}, home={self.current_state['HOME']}, hostname={self.current_state['HOSTNAME']}, pwd={self.current_state['PWD']}, is_root={self.current_state['IS_ROOT']}"
+
+    def parse_shell(self, query: str) -> tuple[list, list[set]]:
+        cwd = self.current_state["PWD"]
+
+        first = query.lstrip().split(maxsplit=1)[0] if query.strip() else ""
+        if first in COMPOUND_KEYWORDS:
+            return None, []
+
+        query = query.replace("(", "").replace(")", "")
+
+        try:
+            padded = _OP_PATTERN.sub(r" \1 ", query)
+            lexer = shlex.shlex(padded, posix=True)
+            lexer.whitespace_split = True
+            lexer.commenters = ""
+
+            result: list[list[str]] = []
+            result_paths: list[set[str]] = []
+            current: list[str] = []
+            current_paths: set[str] = set()
+
+            for token in lexer:
+                token = token.strip()
+                if not token:
+                    continue
+
+                if token in OPERATORS:
+                    if current:
+                        result.append(current)
+                        result_paths.append(current_paths)
+                        current = []
+                        current_paths = set()
+                    result.append([token])
+                    result_paths.append(set())
+                else:
+                    expanded = self.tools.handle_env_vars([token], self.current_state)[
+                        0
+                    ]
+                    if expanded.startswith("./"):
+                        resolved = os.path.normpath(os.path.join(cwd, expanded))
+                        current_paths.add(resolved)
+                        current.append(resolved)
+                    else:
+                        if self.filesystem.is_path(expanded):
+                            if expanded.startswith("/"):
+                                current_paths.add(expanded)
+                            else:
+                                current_paths.add(
+                                    os.path.normpath(os.path.join(cwd, expanded))
+                                )
+                        current.append(expanded)
+
+            if current:
+                result.append(current)
+                result_paths.append(current_paths)
+
+        except ValueError:
+            return [[query]], [set()]
+
+        return result, result_paths
 
     def save_to_fs(self, fs_changes: dict) -> None:
         """Save filesystem changes from LLM."""
@@ -232,6 +227,8 @@ Dynamic environment variables in JSON (you must return all of them and change th
                     content = content.replace("```json", "", count=1).replace("```", "")
                     log.info(f"chat_completion: LLM returned {content}")
 
+                    content = re.sub(r'\\([^"\\/bfnrtu])', r"\1", content)
+
                     try:
                         data = json.loads(content, strict=False)
                     except json.JSONDecodeError as e:
@@ -250,21 +247,7 @@ Dynamic environment variables in JSON (you must return all of them and change th
                         completion.usage.prompt_tokens if completion.usage else 0
                     )
 
-                    try:
-                        structured_output = OutputStructure(**data)
-                    except Exception as e:
-                        log.error(f"LLM error: {e}")
-                        return ""
-
-                    self.current_state.update(
-                        {
-                            "USER": structured_output.user,
-                            "HOME": structured_output.home,
-                            "HOSTNAME": structured_output.hostname,
-                            "PWD": structured_output.pwd,
-                            "IS_ROOT": bool(structured_output.is_root),
-                        }
-                    )
+                    structured_output = OutputStructure(**data)
 
                     self.save_to_fs(structured_output.filesystem)
 
@@ -283,15 +266,15 @@ Dynamic environment variables in JSON (you must return all of them and change th
                             structured_output = OutputStructure(**data)
                         except Exception as fallback_error:
                             log.warning(f"Fallback also failed: {fallback_error}")
-                            retry_info = f"\n\nInvalid JSON: {e}. ONLY return valid JSON with all fields."
+                            retry_info = f'\n\nInvalid JSON: {e}. Follow this structure:\n{{\n  "filesystem": {{}},\n  "command_output": ...\n}}'
 
                 except ValidationError as e:
                     log.warning(f"LLM: attempt {attempt + 1} failed (Pydantic): {e}")
-                    retry_info = f"\n\nMissing/invalid fields: {e}. Provide: user, home, hostname, pwd, is_root, filesystem, command_output."
+                    retry_info = f"\n\nMissing/invalid fields: {e}. Only return filesystem and command_output."
 
                 except APITimeoutError:
                     log.warning("LLM: Timed Out")
-                    retry_info = ""
+                    retry_info = '\n\nReturn ONLY valid JSON: {"filesystem": {}, "command_output": "..."}'
 
                 except RateLimitError:
                     log.warning(f"Rate limit hit on {self.current_model}")
@@ -323,6 +306,18 @@ Dynamic environment variables in JSON (you must return all of them and change th
             case "env":
                 return self.tools.handle_env(args, self.current_state)
 
+            case "hostname":
+                return self.tools.handle_hostname(args, self.current_state)
+
+            case "su":
+                return self.tools.handle_su(args, self.current_state)
+
+            case "pwd":
+                return self.current_state["PWD"] + "\n"
+
+            case "exit" | "logout":
+                return self.tools.handle_exit(args, self.current_state)
+
             case "apt" | "apt-get":
                 return self.tools.handle_apt(args)
 
@@ -350,11 +345,13 @@ Dynamic environment variables in JSON (you must return all of them and change th
                 return ""
 
             case _:
+                if "/" in command:
+                    return None
                 valid, error_msg = self.tools.validate_command(command)
                 if not valid:
                     log.info(f"Invalid command: {command} with args {args}")
                     return error_msg
-                return ""
+                return None
 
     def handle_history(self, args: list) -> str:
         if "-c" in args:
@@ -367,54 +364,60 @@ Dynamic environment variables in JSON (you must return all of them and change th
     def chat(self, query: str) -> str:
         log.info(f"Query: {query}")
         output = ""
-
         self.history.append(query)
 
-        parsed_cmd, paths = parse_shell(
-            query, self.current_state["PWD"], self.current_state, self.filesystem
-        )
+        parsed_cmd, paths_list = self.parse_shell(query)
+        if parsed_cmd is None:
+            state = self._format_state()
+            dirs = self.filesystem.path_info(self.current_state["PWD"])
+            dirs += (
+                "(If directory or files are empty, generate plausible content instead)"
+            )
+            return (
+                self.chat_completion(f"{state}\n{dirs}\nUser Query: {query}").rstrip(
+                    "\n"
+                )
+                + "\n"
+            )
         if not parsed_cmd:
             return "syntax error"
 
-        # Last arg of the last real command (not an operator token)
         last_cmd = next(
             (t for t in reversed(parsed_cmd) if t[0] not in OPERATORS), None
         )
         if last_cmd:
             self.current_state["_"] = last_cmd[-1]
-        cmd_flags = {}
-        user_query = ""
-        cmd_outputs = ""
 
-        for token in parsed_cmd:
-            user_query += " ".join(token)
+        for i, token in enumerate(parsed_cmd):
             command = token[0]
             if command in OPERATORS:
                 continue
 
-            args = token[1:]
-            command_output = self.handle_command(command, args)
-            if command_output:
-                cmd_outputs += f"Output of {' '.join(token)} is {command_output}"
+            result = self.handle_command(command, token[1:])
 
-        log.info(cmd_outputs)
+            if result is None:
+                log.info(f"LLM needed: {' '.join(token)}")
+                state = self._format_state()
+                log.info(f"State: {state}")
 
-        state = self._format_state()
-        log.info(state)
+                paths = paths_list[i] if i < len(paths_list) else set()
+                log.info(f"Paths extracted {paths}")
+                dirs = self.filesystem.path_info(self.current_state["PWD"])
+                if paths:
+                    dirs += "\n".join(
+                        self.filesystem.path_info(p) for p in paths if p != ""
+                    )
+                dirs += "(If directory or files are empty, generate plausible content instead, unless its <content_trimmed>)"
+                log.info(dirs)
 
-        if not paths:
-            dirs = self.filesystem.path_info(self.current_state["PWD"])
-        else:
-            dirs = "\n".join(self.filesystem.path_info(p) for p in paths if p != "")
-        dirs += (
-            "\n\n(If directory or files are empty, generate plausible content instead)"
-        )
+                prompt = f"{state}\n{dirs}\nUser Query: {' '.join(token)}"
 
-        log.info(dirs)
-
-        prompt = f"{state}\n{dirs}\n{cmd_outputs}\nUser Query: {user_query}"
-
-        output = self.chat_completion(prompt)
+                token_output = self.chat_completion(prompt)
+                if token_output:
+                    output += token_output.rstrip("\n") + "\n"
+            elif result:
+                log.info(f"Manually handled: {' '.join(token)}")
+                output += result.rstrip("\n") + "\n"
 
         self.shell_prompt = self._shell_prompt(self.current_state)
         return output
