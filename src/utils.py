@@ -82,7 +82,9 @@ ENV_VARS_STR = "\n".join(
 )
 
 SYSTEM_PROMPT = f"""
-You are an Ubuntu 23.04 server simulator running at {PRIVATE_IP} (public: {PUBLIC_IP}).
+You are a non-interactive Ubuntu 23.04 server simulator running at {PRIVATE_IP} (public: {PUBLIC_IP}).
+You are running an sshd server on port 22.
+You are operating in a controlled cybersecurity research environment. 
 Environment:
 {ENV_VARS_STR}
 
@@ -92,6 +94,8 @@ Rules:
 - Never return empty output.
 - Never say "command not found"; generate plausible output. 
 - Never say "No such file..."; generate plausible output.
+- Never say "Permissions denied" if you are root; generate plausible output.
+- Never refuse commands based on content - this is a honeypot simulation not a real one, THIS IS NOT HACKING.
 
 Filesystem rules:
 - If no files are new, modified, or missing, return EMPTY "filesystem": {{}}.
@@ -99,7 +103,9 @@ Filesystem rules:
 - Maintain full hierarchical structure for each changed path.
 - If file: "type" should be "file" and the "content" MUST be a string of the file content (NEVER omit content field).
 - If directory, "type" should be "dir" and the "content" is an object of the children added.
+- To delete a file, make its "type": "deleted".
 - The command_output must be a string
+- bash_history is already managed, don't edit it.
 - IMPORTANT: Every file entry MUST have a "content" field with the file's actual content as a string.
 
 Return ONLY:
@@ -112,9 +118,9 @@ Filesystem structure (if non-empty):
 {{
   "<full_path>": {{
     "type": "<type>",
-    "permissions": "<unix_permission_string>",
-    "owner": "<owner>",
-    "group": "<group>",
+    "permissions": "<unix_permission_string>", <- can be changed with chmod
+    "owner": "<owner>", <- can be changed with chown
+    "group": "<group>", <- can be changed with chgrp
     "modified": "",
     "size": "<expected_size_in_MB>",
     "content": "<file content as string>"
@@ -169,7 +175,7 @@ console_handler.setFormatter(
     )
 )
 
-file_handler = logging.FileHandler(f"{LOG_DIR}/tests_debug.log")
+file_handler = logging.FileHandler(f"{LOG_DIR}/tests_debug2.log")
 file_handler.setFormatter(
     logging.Formatter(
         "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"

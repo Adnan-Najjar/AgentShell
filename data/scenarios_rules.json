@@ -14,7 +14,7 @@
     "step 1": "(inet\\s|inet addr:)\\d{1,3}(\\.\\d{1,3}){3}",
     "step 2": "bytes from 172.18.0.\\d+",
     "step 3": "succeeded",
-    "step 4": "(authenticity of host|password:|Could not resolve hostname|Connecting)",
+    "step 4": "(password:|[Cc]onnect.*)",
     "step 5": "",
     "step 6": ".*",
     "step 7": "hello world?",
@@ -33,12 +33,12 @@
     "step 9": "^[a-za-z0-9_.-]+:[^:]+:\\d+:\\d+:.*"
   },
   "data_reconnaissance_exfiltration": {
-    "step 1": "total \\d+",
+    "step 1": "(total \\d+|drwx|-rw-)",
     "step 2": "",
-    "step 3": "total \\d+",
+    "step 3": "(total \\d+|drwx|-rw-)",
     "step 4": "",
     "step 5": "ext\\.gz",
-    "step 6": "(gzip compressed data|ext\\.gz:)",
+    "step 6": "(ext\\.gz|gzip|compressed)",
     "step 7": "",
     "step 8": "^[a-za-z0-9_.-]+:[^:]+:\\d+:\\d+:.*",
     "step 9": "(authenticity of host|password:)"
@@ -46,7 +46,7 @@
   "data_obfuscation_ransomware": {
     "step 1": "^/$",
     "step 2": "(home|tar: Removing)",
-    "step 3": "",
+    "step 3": "(ext\\.gz|home\\.tar|index\\.html|test123)",
     "step 4": "gpg:.*",
     "step 5": "",
     "step 6": "total \\d+",

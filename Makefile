@@ -1,4 +1,4 @@
-.PHONY: test shell clean analyze serve
+.PHONY: test benchmark shell clean analyze serve
 
 default: serve
 
@@ -8,9 +8,12 @@ serve:
 analyze:
 	uv run src/test.py --analyze all
 
-test:
+benchmark:
 	docker compose up -d --build
 	docker compose exec app uv run src/test.py --llm all
+
+test:
+	python -m unittest discover tests -v
 
 shell:
 	docker compose up -d --build

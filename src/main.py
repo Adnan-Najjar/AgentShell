@@ -113,7 +113,30 @@ class Agent:
         if first in COMPOUND_KEYWORDS:
             return None, []
 
+        # Protect $() before paren stripping
+        cmdsub_map = {}
+
+        def _save_cmdsub(m):
+            key = f"\x00CSUB{len(cmdsub_map)}\x00"
+            cmdsub_map[key] = m.group(0)
+            return key
+
+        query = re.sub(r"\$\(([^)]*)\)", _save_cmdsub, query)
+
         query = query.replace("(", "").replace(")", "")
+
+        # Protect redirect-adjacent & before _OP_PATTERN
+        redir_map = {}
+
+        def _save_redir(m):
+            key = f"\x00RED{len(redir_map)}\x00"
+            redir_map[key] = m.group(0)
+            return key
+
+        query = re.sub(r"\d+>&\d+", _save_redir, query)
+        query = re.sub(r"&>(?=\s|$)", _save_redir, query)
+
+        query = re.sub(r"(?<!\|)\|(?!\|)", " | ", query)
 
         try:
             padded = _OP_PATTERN.sub(r" \1 ", query)
@@ -121,24 +144,64 @@ class Agent:
             lexer.whitespace_split = True
             lexer.commenters = ""
 
+            # Fast path for $() — preserves $(...) as strings, returns list[list[str]]
+            if cmdsub_map:
+                segments: list[list[str]] = []
+                current: list[str] = []
+
+                for token in lexer:
+                    token = token.strip()
+                    if not token:
+                        continue
+                    if token in cmdsub_map:
+                        current.append(cmdsub_map[token])
+                    elif token in redir_map:
+                        current.append(redir_map[token])
+                    elif token in OPERATORS:
+                        if current:
+                            segments.append(current)
+                            current = []
+                        segments.append([token])
+                    elif token == "|":
+                        current.append("|")
+                    else:
+                        expanded = self.tools.handle_env_vars(
+                            [token], self.current_state
+                        )[0]
+                        current.append(expanded)
+
+                if current:
+                    segments.append(current)
+
+                return segments, [set() for _ in segments]
+
             result: list[list[str]] = []
             result_paths: list[set[str]] = []
             current: list[str] = []
             current_paths: set[str] = set()
+
+            def _append_current():
+                nonlocal current, current_paths, result, result_paths
+                if current:
+                    result.append(current)
+                    result_paths.append(current_paths)
+                    current = []
+                    current_paths = set()
 
             for token in lexer:
                 token = token.strip()
                 if not token:
                     continue
 
+                if token in redir_map:
+                    token = redir_map[token]
+
                 if token in OPERATORS:
-                    if current:
-                        result.append(current)
-                        result_paths.append(current_paths)
-                        current = []
-                        current_paths = set()
+                    _append_current()
                     result.append([token])
                     result_paths.append(set())
+                elif token == "|":
+                    current.append("|")
                 else:
                     expanded = self.tools.handle_env_vars([token], self.current_state)[
                         0
@@ -157,9 +220,7 @@ class Agent:
                                 )
                         current.append(expanded)
 
-            if current:
-                result.append(current)
-                result_paths.append(current_paths)
+            _append_current()
 
         except ValueError:
             return [[query]], [set()]
@@ -249,6 +310,17 @@ class Agent:
 
                     structured_output = OutputStructure(**data)
 
+                    bad = [
+                        p
+                        for p, e in structured_output.filesystem.items()
+                        if e.get("type", "file") == "file"
+                        and not e.get("content")
+                    ]
+                    if bad:
+                        paths_str = ", ".join(bad)
+                        retry_info = f"\n\nFiles missing content: {paths_str}. Every file entry MUST include non-empty 'content'."
+                        continue
+
                     self.save_to_fs(structured_output.filesystem)
 
                     return structured_output.command_output
@@ -296,54 +368,37 @@ class Agent:
             return ""
 
     def handle_command(self, command: str, args: list) -> str:
+        if command == "sudo":
+            self.current_state["IS_ROOT"] = True
+            return self.handle_command(args[0], args[1:])
+
         match command:
             case "cd":
                 return self.tools.handle_cd(args, self.current_state, self.filesystem)
-
             case "export":
                 return self.tools.handle_export(args, self.current_state)
-
             case "env":
                 return self.tools.handle_env(args, self.current_state)
-
             case "hostname":
                 return self.tools.handle_hostname(args, self.current_state)
-
             case "su":
                 return self.tools.handle_su(args, self.current_state)
-
             case "pwd":
                 return self.current_state["PWD"] + "\n"
-
             case "exit" | "logout":
                 return self.tools.handle_exit(args, self.current_state)
-
             case "apt" | "apt-get":
                 return self.tools.handle_apt(args)
-
             case "history":
                 return self.handle_history(args)
-
             case "curl":
-                out, fs_changes = self.tools.handle_curl(
-                    args, self.current_state["PWD"]
+                return self.tools.handle_curl(
+                    args, self.current_state["PWD"], self.filesystem
                 )
-                if out:
-                    if fs_changes:
-                        self.save_to_fs(fs_changes)
-                    return out
-                return ""
-
             case "wget":
-                out, fs_changes = self.tools.handle_wget(
-                    args, self.current_state["PWD"]
+                return self.tools.handle_wget(
+                    args, self.current_state["PWD"], self.filesystem
                 )
-                if out:
-                    if fs_changes:
-                        self.save_to_fs(fs_changes)
-                    return out
-                return ""
-
             case _:
                 if "/" in command:
                     return None
@@ -393,7 +448,9 @@ class Agent:
             if command in OPERATORS:
                 continue
 
+            was_root = self.current_state["IS_ROOT"]
             result = self.handle_command(command, token[1:])
+            self.current_state["IS_ROOT"] = was_root
 
             if result is None:
                 log.info(f"LLM needed: {' '.join(token)}")
@@ -413,8 +470,7 @@ class Agent:
                 prompt = f"{state}\n{dirs}\nUser Query: {' '.join(token)}"
 
                 token_output = self.chat_completion(prompt)
-                if token_output:
-                    output += token_output.rstrip("\n") + "\n"
+                output += (token_output or "").rstrip("\n") + "\n"
             elif result:
                 log.info(f"Manually handled: {' '.join(token)}")
                 output += result.rstrip("\n") + "\n"

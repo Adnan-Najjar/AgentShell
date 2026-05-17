@@ -347,7 +347,7 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
             log.warn(f"Download failed: {e}")
             return None
 
-    def handle_wget(self, args: list, pwd: str = "/root") -> tuple[str, dict]:
+    def handle_wget(self, args: list, pwd: str = "/root", filesystem=None) -> str:
         url = None
         output_file = None
         stdout = False
@@ -385,7 +385,7 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
             i += 1
 
         if not url:
-            return ("wget: missing URL\n", {})
+            return "wget: missing URL\n"
 
         parsed = urlparse(url)
         domain = parsed.hostname or "unknown"
@@ -403,7 +403,7 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
         result = self.handle_downloads(url, output_path, command="wget")
 
         if not result:
-            return (f"--{start_time}--  {url}\nERROR: download failed\n", {})
+            return f"--{start_time}--  {url}\nERROR: download failed\n"
 
         size = result["size"]
 
@@ -433,30 +433,23 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
                 with open(output_path, "r") as f:
                     content = f.read()
                 os.remove(output_path)
-                return (content + response, {})
+                return content + response
             except:
-                return (response, {})
+                return response
 
         # Add downloaded file to filesystem
-        modified = datetime.now().strftime("%b %d %H:%M")
         try:
             with open(output_path, "r") as f:
                 file_content = f.read()
         except:
             file_content = ""
-        fs_entry = {
-            "type": "file",
-            "permissions": "-rw-r--r--",
-            "owner": "root",
-            "group": "root",
-            "modified": modified,
-            "size": str(size),
-            "content": file_content,
-        }
 
-        return (response, {f"{pwd}/{filename}": fs_entry})
+        if filesystem:
+            filesystem.add_content(f"{pwd}/{filename}", file_content)
 
-    def handle_curl(self, args: list, pwd: str = "/root") -> tuple[str, dict]:
+        return response
+
+    def handle_curl(self, args: list, pwd: str = "/root", filesystem=None) -> str:
         url = None
         output_file = None
         stdout = True  # curl defaults to stdout
@@ -497,7 +490,7 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
             i += 1
 
         if not url:
-            return ("curl: (2) no URL specified\n", {})
+            return "curl: (2) no URL specified\n"
 
         filename = os.path.basename(output_file) if output_file else "output"
 
@@ -510,7 +503,7 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
         result = self.handle_downloads(url, output_path, command="curl")
 
         if not result:
-            return ("curl: (7) Failed to connect\n", {})
+            return "curl: (7) Failed to connect\n"
 
         size = result["size"]
 
@@ -529,25 +522,18 @@ E: The repository 'http://security.ubuntu.com/ubuntu lunar-security InRelease' i
                 with open(output_path, "r") as f:
                     content = f.read()
                 os.remove(output_path)
-                return (content + progress, {})
+                return content + progress
             except:
-                return (progress, {})
+                return progress
 
         # Add downloaded file to filesystem
-        modified = datetime.now().strftime("%b %d %H:%M")
         try:
             with open(output_path, "r") as f:
                 file_content = f.read()
         except:
             file_content = ""
-        fs_entry = {
-            "type": "file",
-            "permissions": "-rw-r--r--",
-            "owner": "root",
-            "group": "root",
-            "modified": modified,
-            "size": str(size),
-            "content": file_content,
-        }
 
-        return (progress, {f"{pwd}/{filename}": fs_entry})
+        if filesystem:
+            filesystem.add_content(f"{pwd}/{filename}", file_content)
+
+        return progress

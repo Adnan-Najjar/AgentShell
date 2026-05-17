@@ -1,5 +1,6 @@
 import os
 import re
+import fnmatch
 from datetime import datetime
 
 from utils import USER, motd
@@ -139,7 +140,17 @@ filesystem = {
                         "group": "user",
                         "modified": "2025-04-05",
                         "size": "4096",
-                        "content": {},
+                        "content": {
+                            ".bashrc": {
+                                "type": "file",
+                                "permissions": "-rw-r--r--",
+                                "owner": "user",
+                                "group": "user",
+                                "modified": "2025-04-05",
+                                "size": "1KB",
+                                "content": "# ~/.bashrc\n[ -z \"$PS1\" ] && return\nHISTCONTROL=ignoreboth\nshopt -s histappend checkwinsize\nHISTSIZE=1000\nHISTFILESIZE=2000\nif [ -x /usr/bin/dircolors ]; then\n    eval \"$(dircolors -b)\"\n    alias ls='ls --color=auto'\nfi\nalias ll='ls -alF'\nalias la='ls -A'\nPS1='\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ '\n"
+                            },
+                        },
                     }
                 },
             },
@@ -265,7 +276,17 @@ filesystem = {
                 "group": "root",
                 "modified": "2025-01-15",
                 "size": "4096",
-                "content": {},
+                "content": {
+                    "log": {
+                        "type": "dir",
+                        "permissions": "drwxr-xr-x",
+                        "owner": "root",
+                        "group": "root",
+                        "modified": "2025-01-15",
+                        "size": "4096",
+                        "content": {},
+                    },
+                },
             },
         },
     }
@@ -292,6 +313,36 @@ class Filesystem:
                 parts.append(part)
         return "/" + "/".join(parts)
 
+    def resolve_glob(self, pattern: str, cwd: str = "/") -> list[str]:
+        """Resolve a glob pattern against the filesystem, returning matching paths."""
+        if not pattern.startswith("/"):
+            pattern = os.path.join(cwd, pattern)
+        resolved = self._resolve(pattern)
+        if not any(c in resolved for c in "*?["):
+            return [resolved]
+
+        parent, glob_part = os.path.split(resolved)
+        if not parent:
+            parent = "/"
+        try:
+            parent_node = self._walk(parent)
+        except KeyError:
+            return []
+        if parent_node.get("type") != "dir":
+            return []
+
+        children = parent_node.get("content", {})
+        if not isinstance(children, dict):
+            return []
+
+        matches = []
+        for name, entry in children.items():
+            if entry.get("type") == "deleted":
+                continue
+            if fnmatch.fnmatch(name, glob_part):
+                matches.append(os.path.join(parent, name))
+        return sorted(matches)
+
     def _walk(self, path: str) -> dict:
         """Resolve a path to its node, raising KeyError if not found."""
         parts = [p for p in path.split("/") if p]
@@ -301,6 +352,8 @@ class Filesystem:
             if not isinstance(content, dict) or part not in content:
                 raise KeyError(f"Path not found: {path!r} (missing {part!r})")
             node = content[part]
+            if node.get("type") == "deleted":
+                raise KeyError(f"Path not found: {path!r} (deleted)")
         return node
 
     def get(self, path: str) -> dict:
@@ -319,7 +372,9 @@ class Filesystem:
             return False
         if " " in token:
             return (
-                token.startswith("/") or token.startswith("./") or token.startswith("../")
+                token.startswith("/")
+                or token.startswith("./")
+                or token.startswith("../")
             )
         return (
             token.startswith("/")
@@ -393,6 +448,21 @@ class Filesystem:
             elif entry.get("type", "file") == "file" and "content" not in entry:
                 entry["content"] = ""
             node["content"][name] = entry
+
+    def add_content(self, full_path: str, content: str, state: dict = None) -> None:
+        """Create or overwrite a file with content, auto-generating metadata.
+        State is a dict with USER key for owner/group; defaults to root.
+        """
+        owner = state.get("USER", "root") if state else "root"
+        self.put(full_path, {
+            "type": "file",
+            "permissions": "-rw-r--r--",
+            "owner": owner,
+            "group": owner,
+            "modified": self._now(),
+            "size": str(int(len(content) / 1024) + 1) + "KB",
+            "content": content,
+        })
 
 
 if __name__ == "__main__":
