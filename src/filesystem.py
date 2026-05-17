@@ -388,12 +388,15 @@ class Filesystem:
         try:
             node = self.get(path)
             if node.get("type") == "dir":
+                content = node.get("content", {})
+                if not isinstance(content, dict):
+                    return f"Directory listing for {path}: (empty)"
                 children = {
                     name: {
                         k: (v if k != "content" else "<content_trimmed>")
                         for k, v in entry.items()
                     }
-                    for name, entry in node.get("content", {}).items()
+                    for name, entry in content.items()
                 }
                 return f"Directory listing for {path}: {children}"
             else:

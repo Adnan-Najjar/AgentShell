@@ -18,9 +18,10 @@ AI-powered SSH honeypot that simulates a Linux shell with LLM-backed command res
 # Start honeypot and ELK stack
 docker compose up -d
 
-# Access honeypot SSH
-ssh root@localhost -p 2223
+# Access honeypot SSH (use PORT)
+ssh root@localhost -p $PORT
 # Password: root
+# (default PORT is 2223 unless overridden)
 
 # Access Kibana dashboard
 # http://localhost:5601
@@ -73,6 +74,7 @@ Environment variables (in `.env` or docker-compose):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `PORT` | `2223` | SSH server and container listen port |
 | `MODEL` | `agentshell/low-risk` | LLM model to use |
 | `BASE_URL` | `http://host.docker.internal:11434/v1` | LLM API endpoint |
 | `API_KEY` | `ollama` | API key for authentication |

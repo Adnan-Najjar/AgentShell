@@ -153,6 +153,14 @@ def run_analyze(args, methods):
     else:
         commands_table = ""
 
+    tactics = [
+        "system_reconnaissance",
+        "scanning_lateral_propagation",
+        "persistence",
+        "data_reconnaissance_exfiltration",
+        "data_obfuscation_ransomware",
+    ]
+
     if args.analyze in ("scenarios", "all"):
         scenarios_checker = BelievabilityChecker(output_dir=RESULTS_DIR)
         for method in methods:
@@ -161,16 +169,10 @@ def run_analyze(args, methods):
                 scenarios_results[method] = scenarios_checker.test_method(
                     method, dir_path
                 )
+        del methods[1]
+        del methods[0]
         scenarios_checker.create_bar_chart(scenarios_results, methods)
         scenarios_checker.create_line_chart(scenarios_results, methods)
-
-        tactics = [
-            "system_reconnaissance",
-            "scanning_lateral_propagation",
-            "persistence",
-            "data_reconnaissance_exfiltration",
-            "data_obfuscation_ransomware",
-        ]
 
         scn_rows = []
         for tactic in tactics:
@@ -238,6 +240,9 @@ def run_analyze(args, methods):
             f.write(scenarios_table)
             f.write("\n## Bar Chart\n\n")
             f.write("![Believability Bar Chart](result_bar.png)\n\n")
+            f.write("\n## Token usage per step line chart\n\n")
+            for t in tactics:
+                f.write(f"![](result_tokens_{t}.png)\n")
 
     print(f"Results saved to: {output_file}")
 

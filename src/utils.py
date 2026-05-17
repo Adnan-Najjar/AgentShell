@@ -153,9 +153,6 @@ TACTICS = [
     "data_obfuscation_ransomware",
 ]
 
-METHODS = ["control", MODEL_NAME, "cowrie"]
-COLORS = ["blue", "red", "green", "orange"]
-
 RESULTS_DIR = "results"
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
@@ -175,7 +172,7 @@ console_handler.setFormatter(
     )
 )
 
-file_handler = logging.FileHandler(f"{LOG_DIR}/tests_debug2.log")
+file_handler = logging.FileHandler(f"{LOG_DIR}/tests_debug.log")
 file_handler.setFormatter(
     logging.Formatter(
         "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"

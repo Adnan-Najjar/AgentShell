@@ -222,7 +222,7 @@ class BelievabilityChecker:
         ax.set_ylabel("Believability Score (%)")
         ax.set_xticks([xi + width / 2 for xi in x])
         ax.set_xticklabels(
-            [t.replace("_", " ").title() for t in self.tactics], rotation=45, ha="right"
+            [t.replace("_", " ").title() for t in self.tactics], rotation=45, ha="right", fontsize=20
         )
         ax.set_ylim(0, 110)
         ax.legend()

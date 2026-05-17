@@ -25,6 +25,7 @@ RUN mkdir output logs;
 COPY src/ ./src/
 COPY data/ ./data/
 
-EXPOSE 22
+ARG PORT=2223
+EXPOSE ${PORT}
 
 CMD ["uv", "run", "src/ssh_server.py"]

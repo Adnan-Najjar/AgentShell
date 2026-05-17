@@ -532,8 +532,11 @@ def handle_connection(
 # ── Main ───────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="Fake SSH honeypot server")
+    import os
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=22)
+    # Priority: PORT env > --port > default
+    default_port = int(os.environ.get("PORT", 2223))
+    parser.add_argument("--port", type=int, default=default_port)
     args = parser.parse_args()
 
     log.info("=" * 60)

@@ -3,11 +3,12 @@ services:
     container_name: app
     build: .
     ports:
-      - "22:22"
+      - "${PORT:-2223}:${PORT:-2223}"
     environment:
       - MODEL=${MODEL}
       - BASE_URL=${BASE_URL}
       - API_KEY=${API_KEY}
+      - PORT=${PORT}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
